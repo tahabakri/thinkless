@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(for f:*)",
+      "Bash(do mv:*)",
+      "Bash(done)",
+      "Bash(for dir:*)",
+      "Bash(do touch:*)",
+      "Bash(mv \"app/\\(tabs\\)/brain\" \"app/\\(tabs\\)/drain\")",
+      "Bash(mkdir -p \"app/\\(tabs\\)/drain\")",
+      "Bash(cat /c/Users/tahab/Downloads/project-scaffold/thinkless/app/\\\\\\(tabs\\\\\\)/_layout.tsx)",
+      "Bash(cat /c/Users/tahab/Downloads/project-scaffold/thinkless/app/\\\\\\(tabs\\\\\\)/\\\\\\(home\\\\\\)/_layout.tsx)",
+      "Bash(cat /c/Users/tahab/Downloads/project-scaffold/thinkless/app/\\\\\\(tabs\\\\\\)/\\\\\\(home\\\\\\)/index.tsx)",
+      "Bash(cat /c/Users/tahab/Downloads/project-scaffold/thinkless/app/\\\\\\(tabs\\\\\\)/chat/_layout.tsx)",
+      "Bash(cat /c/Users/tahab/Downloads/project-scaffold/thinkless/app/\\\\\\(tabs\\\\\\)/chat/index.tsx)",
+      "Bash(cat /c/Users/tahab/Downloads/project-scaffold/thinkless/app/\\\\\\(tabs\\\\\\)/drain/_layout.tsx)",
+      "Bash(cat /c/Users/tahab/Downloads/project-scaffold/thinkless/app/\\\\\\(tabs\\\\\\)/drain/index.tsx)",
+      "Bash(cat /c/Users/tahab/Downloads/project-scaffold/thinkless/app/\\\\\\(tabs\\\\\\)/tribunal/_layout.tsx)",
+      "Bash(cat /c/Users/tahab/Downloads/project-scaffold/thinkless/app/\\\\\\(tabs\\\\\\)/tribunal/index.tsx)",
+      "Bash(cat /c/Users/tahab/Downloads/project-scaffold/thinkless/app/\\\\\\(tabs\\\\\\)/vault/_layout.tsx)",
+      "Bash(cat /c/Users/tahab/Downloads/project-scaffold/thinkless/app/\\\\\\(tabs\\\\\\)/vault/index.tsx)",
+      "Bash(find /c/Users/tahab/Downloads/project-scaffold/thinkless -type f \\\\\\( -name \"*.tsx\" -o -name \"*.ts\" \\\\\\) -not -path \"*/.claude/*\" -not -path \"*/node_modules/*\" -exec wc -l {} +)",
+      "Bash(xargs ls:*)",
+      "Bash(npm install:*)",
+      "Bash(node -e \":*)",
+      "Bash(npx expo:*)",
+      "Bash(gh auth:*)"
+    ]
+  }
+}

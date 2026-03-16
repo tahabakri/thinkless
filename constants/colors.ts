@@ -1,0 +1,27 @@
+const Colors = {
+  bg: '#080808',
+  bg2: '#111111',
+  bg3: '#1a1a1a',
+  bgCard: '#111111',
+  bgElevated: '#1a1a1a',
+  bgInput: '#1a1a1a',
+  border: '#333333',
+  borderFocus: '#555555',
+  text: '#F2F2F2',
+  textSecondary: '#8A8A8A',
+  textMuted: '#555555',
+  accent: '#AAFF00',
+  accentDim: '#2a3d00',
+  accentHover: '#ccff33',
+  danger: '#FF2D2D',
+  dangerDim: '#3d0a0a',
+  warning: '#FF8C00',
+  success: '#AAFF00',
+  loop: '#FF4444',
+  tabBar: '#080808',
+  tabBarBorder: '#333333',
+  inactive: '#555555',
+  orange: '#FF4500',
+};
+
+export default Colors;

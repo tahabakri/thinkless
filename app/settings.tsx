@@ -8,15 +8,13 @@ import {
   Switch,
   Alert,
 } from 'react-native';
-import { useRouter, Stack } from 'expo-router';
-import { Bell, Clock, Crown, Trash2, Info } from 'lucide-react-native';
+import { Stack } from 'expo-router';
+import { Bell, Clock, Trash2, Info } from 'lucide-react-native';
 import { useApp } from '@/providers/AppProvider';
 import Colors from '@/constants/colors';
 
 export default function SettingsScreen() {
-  const router = useRouter();
   const {
-    isPro,
     notificationEnabled,
     slapEnabled,
     slapFrequency,
@@ -49,19 +47,6 @@ export default function SettingsScreen() {
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <Stack.Screen options={{ title: 'SETTINGS' }} />
 
-      {!isPro && (
-        <TouchableOpacity
-          style={styles.proCard}
-          onPress={() => router.push('/paywall' as never)}
-          activeOpacity={0.7}
-        >
-          <Crown color={Colors.accent} size={20} />
-          <View style={styles.proInfo}>
-            <Text style={styles.proTitle}>UPGRADE TO PRO</Text>
-            <Text style={styles.proDesc}>Unlimited drains, full echo history, more</Text>
-          </View>
-        </TouchableOpacity>
-      )}
 
       <View style={styles.sectionHeader}>
         <View style={styles.sectionLine} />

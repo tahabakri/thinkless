@@ -1,7 +1,7 @@
 import { SocraPersonality, ChatMessage } from '@/types';
 
-const GEMINI_API_KEY = process.env.EXPO_PUBLIC_GEMINI_API_KEY!;
-const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
+const GROQ_API_KEY = process.env.EXPO_PUBLIC_GROQ_API_KEY!;
+const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
 
 const BASE_SYSTEM_PROMPT = `You are Socra, a blunt, no-nonsense cognitive coach inside the ThinkLess app. Your purpose is to break users out of overthinking loops and push them toward decisive action. You are NOT a therapist. You don't validate spiral thinking. You challenge it. You're the voice that says "stop thinking and move."
 
@@ -26,24 +26,31 @@ const PERSONALITY_MODIFIERS: Record<SocraPersonality, string> = {
     'Everything is a countdown. Set specific deadlines in every response. Use time-pressure language. Reference clocks, timers, expiration dates. Every minute spent thinking is a minute billed to their life.',
 };
 
-async function callGemini(systemPrompt: string, userPrompt: string): Promise<string> {
-  const response = await fetch(GEMINI_URL, {
+async function callGroq(systemPrompt: string, userPrompt: string): Promise<string> {
+  const response = await fetch(GROQ_URL, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${GROQ_API_KEY}`,
+    },
     body: JSON.stringify({
-      contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
-      systemInstruction: { parts: [{ text: systemPrompt }] },
-      generationConfig: { temperature: 0.9, maxOutputTokens: 300 },
+      model: 'llama-3.3-70b-versatile',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      temperature: 0.9,
+      max_tokens: 300,
     }),
   });
 
   if (!response.ok) {
-    throw new Error(`Gemini API error: ${response.status}`);
+    throw new Error(`Groq API error: ${response.status}`);
   }
 
   const data = await response.json();
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!text) throw new Error('Empty Gemini response');
+  const text = data.choices?.[0]?.message?.content;
+  if (!text) throw new Error('Empty Groq response');
   return text.trim();
 }
 
@@ -86,7 +93,7 @@ export async function generateDrainResponse(
   const extra =
     'The user just did a "Thought Drain" — they dumped a spiraling thought. Your job: challenge it, cut through the noise, and ask the ONE question that gets to the core. Make them uncomfortable with their own pattern.';
   try {
-    return await callGemini(getSystemPrompt(personality, extra), `User's thought dump:\n"${text}"`);
+    return await callGroq(getSystemPrompt(personality, extra), `User's thought dump:\n"${text}"`);
   } catch {
     return "You already know the answer. You're stalling. What would you do if you couldn't think about this anymore?";
   }
@@ -101,7 +108,7 @@ export async function generateTribunalVerdict(
   const extra =
     'The user is in the "Inner Tribunal" — they debated both sides of a decision. You are the judge. Deliver a verdict. Pick a side or reject both. Be decisive. End with a locked decision and command. Never say "both sides have merit" without picking one.';
   try {
-    return await callGemini(
+    return await callGroq(
       getSystemPrompt(personality, extra),
       `Topic: "${topic}"\nSide A argues: "${sideA}"\nSide B argues: "${sideB}"\n\nDeliver your verdict.`
     );
@@ -125,7 +132,7 @@ export async function generateChatResponse(
     ? `Recent conversation:\n${historyContext}\n\nUser's new message: "${message}"`
     : `User says: "${message}"`;
   try {
-    return await callGemini(getSystemPrompt(personality, extra), prompt);
+    return await callGroq(getSystemPrompt(personality, extra), prompt);
   } catch {
     return "Stop explaining. Start doing. What's one action you can take in the next 10 minutes?";
   }
@@ -156,7 +163,7 @@ Pick 2-4 that apply.`;
       : '';
 
   try {
-    const raw = await callGemini(
+    const raw = await callGroq(
       getSystemPrompt(personality, extra),
       `Analyze this text for overthinking patterns:\n"${text}"${drainsContext}`
     );
@@ -190,7 +197,7 @@ export async function generatePatternInsight(
   const extra =
     'You are generating a "Pattern DNA" analysis — identifying the user\'s core avoidance style based on their thought drain history. Name their avoidance archetype (e.g., "The Researcher," "The Perfectionist," "The Catastrophizer") and explain in 2-3 sentences how it manifests. Be specific to THEIR patterns.';
   try {
-    return await callGemini(
+    return await callGroq(
       getSystemPrompt(personality, extra),
       `Here are the user's recent thought drains:\n${drainTexts.slice(0, 10).map((d, i) => `${i + 1}. "${d}"`).join('\n')}\n\nIdentify their avoidance archetype and pattern.`
     );
@@ -213,7 +220,7 @@ export async function generateWeeklyVerdict(
   const extra =
     'You are delivering a weekly performance verdict. Be honest about their progress (or lack of it). Reference specific numbers. End with a challenge for next week.';
   try {
-    return await callGemini(
+    return await callGroq(
       getSystemPrompt(personality, extra),
       `Weekly stats:\n- Escape Score: ${stats.chamberScore}\n- Drains completed: ${stats.totalDrains}\n- Tribunals held: ${stats.totalTribunals}\n- Commitments kept: ${stats.commitmentsKept}\n- Commitments broken: ${stats.commitmentsBroken}\n- Current streak: ${stats.currentStreak} days\n\nDeliver your weekly verdict.`
     );

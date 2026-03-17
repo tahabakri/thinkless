@@ -11,8 +11,7 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
-import { useRouter } from 'expo-router';
-import { Lock, ChevronRight } from 'lucide-react-native';
+import { } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { useApp } from '@/providers/AppProvider';
 import Colors from '@/constants/colors';
@@ -28,8 +27,7 @@ const QUICK_CHIPS = [
 ];
 
 export default function DrainScreen() {
-  const router = useRouter();
-  const { drains, addDrain, isDraining, canDrain, isPro, weeklyDrainCount, addCommitment, isLoading } = useApp();
+  const { drains, addDrain, isDraining, addCommitment, isLoading } = useApp();
   const [text, setText] = useState<string>('');
   const [showResponse, setShowResponse] = useState<string | null>(null);
   const responseAnim = useRef(new Animated.Value(0)).current;
@@ -44,11 +42,6 @@ export default function DrainScreen() {
 
   const handleDrain = async () => {
     if (!text.trim()) return;
-    if (!canDrain) {
-      router.push('/paywall' as never);
-      return;
-    }
-
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
     const drain = await addDrain(text.trim());
     setText('');
@@ -82,8 +75,6 @@ export default function DrainScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   };
 
-  const freeDrains = Math.max(0, 3 - weeklyDrainCount);
-
   return (
     <KeyboardAvoidingView
       style={styles.container}
@@ -98,19 +89,6 @@ export default function DrainScreen() {
         <View style={styles.headerDivider} />
 
         <View style={styles.body}>
-          {!isPro && (
-            <View style={styles.usageRow}>
-              <Text style={styles.usageLabel}>
-                FREE DRAINS:{' '}
-                <Text style={{ color: freeDrains === 0 ? Colors.danger : Colors.accent }}>
-                  {freeDrains}/3
-                </Text>
-              </Text>
-              <TouchableOpacity onPress={() => router.push('/paywall' as never)} activeOpacity={0.7}>
-                <Text style={styles.upgradeLink}>UPGRADE →</Text>
-              </TouchableOpacity>
-            </View>
-          )}
 
           <View style={styles.chipsSection}>
             <Text style={styles.chipsLabel}>QUICK START</Text>

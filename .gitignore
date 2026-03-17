@@ -41,6 +41,7 @@ yarn-error.*
 .rork
 
 .env
+.claude/
 rork-eslint.config.js
 core
 node_modules

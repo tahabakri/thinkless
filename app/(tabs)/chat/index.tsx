@@ -35,7 +35,7 @@ const PERSONALITIES: PersonalityOption[] = [
 export default function ChatScreen() {
   const {
     chatMessages, sendChat, isChatPending, clearChat,
-    personality, setPersonalityMode, isPro, isLoading,
+    personality, setPersonalityMode, isLoading,
   } = useApp();
   const [text, setText] = useState<string>('');
   const [showPersonality, setShowPersonality] = useState<boolean>(false);
@@ -69,7 +69,6 @@ export default function ChatScreen() {
   };
 
   const handleSetPersonality = async (mode: SocraPersonality) => {
-    if (mode !== 'default' && !isPro) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     await setPersonalityMode(mode);
     setShowPersonality(false);
@@ -228,12 +227,12 @@ export default function ChatScreen() {
             <View style={styles.modalHandle} />
             <Text style={styles.modalTitle}>SOCRA MODES</Text>
             <Text style={styles.modalSub}>
-              {isPro ? 'Choose your coach style.' : 'Default mode is free. Upgrade for more.'}
+              {'Choose your coach style.'}
             </Text>
 
             {PERSONALITIES.map((p) => {
               const isActive = personality === p.id;
-              const isLocked = p.pro && !isPro;
+              const isLocked = false;
               return (
                 <TouchableOpacity
                   key={p.id}
@@ -255,7 +254,6 @@ export default function ChatScreen() {
                     >
                       {p.label}
                     </Text>
-                    {isLocked && <Text style={styles.proTag}>PRO</Text>}
                     {isActive && <Text style={styles.activeTag}>ACTIVE</Text>}
                   </View>
                   <Text style={styles.modeDesc}>{p.desc}</Text>

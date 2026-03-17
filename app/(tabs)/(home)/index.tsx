@@ -37,8 +37,17 @@ interface QuickAction {
 
 export default function HomeScreen() {
   const router = useRouter();
-  const { stats, commitments, echoReport, todayCheckedIn, todayExternalInputs, interventionNeeded, drains, isLoading } = useApp();
+  const appContext = useApp();
   const pulseAnim = useRef(new Animated.Value(1)).current;
+
+  const stats = appContext?.stats ?? { chamberScore: 0, totalDrains: 0, totalTribunals: 0, commitmentsKept: 0, commitmentsBroken: 0, currentStreak: 0, longestStreak: 0, weeklyScores: [] };
+  const commitments = appContext?.commitments ?? [];
+  const echoReport = appContext?.echoReport ?? { loopScore: 0, repetitions: 0, circularPatterns: 0, catastrophizing: 0, pseudoIntellectual: 0, topLoops: [] };
+  const todayCheckedIn = appContext?.todayCheckedIn ?? false;
+  const todayExternalInputs = appContext?.todayExternalInputs ?? [];
+  const interventionNeeded = appContext?.interventionNeeded ?? false;
+  const drains = appContext?.drains ?? [];
+  const isLoading = appContext?.isLoading ?? true;
 
   const score = stats.chamberScore;
   const fill = RING_CIRCUMFERENCE * (score / 100);

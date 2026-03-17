@@ -51,7 +51,7 @@ export const [AppProvider, useApp] = createContextHook(() => {
   const [commitments, setCommitments] = useState<Commitment[]>([]);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [stats, setStats] = useState<UserStats>(DEFAULT_STATS);
-  const [isPro, setIsPro] = useState<boolean>(false);
+  const [isPro, setIsPro] = useState<boolean>(true);
   const [checkIns, setCheckIns] = useState<DailyCheckIn[]>([]);
   const [spiralTimers, setSpiralTimers] = useState<SpiralTimer[]>([]);
   const [externalInputs, setExternalInputs] = useState<ExternalInput[]>([]);
@@ -67,7 +67,7 @@ export const [AppProvider, useApp] = createContextHook(() => {
   useEffect(() => {
     (async () => {
       const id = await getDeviceId();
-      await registerDevice(id);
+      try { await registerDevice(id); } catch {}
       setDeviceId(id);
     })();
   }, []);
@@ -77,35 +77,52 @@ export const [AppProvider, useApp] = createContextHook(() => {
     queryKey: ['app-data', deviceId],
     queryFn: async () => {
       if (!deviceId) throw new Error('No device ID');
-      const [
-        d, t, c, m, ci, st, ei, g, profile, pdna, wr,
-      ] = await Promise.all([
-        drainsService.getDrains(deviceId),
-        tribunalsService.getTribunals(deviceId),
-        commitmentsService.getCommitments(deviceId),
-        chatService.getChatMessages(deviceId),
-        checkinsService.getCheckins(deviceId),
-        spiralService.getSpiralTimers(deviceId),
-        inputsService.getExternalInputs(deviceId),
-        graveyardService.getGraveyardEntries(deviceId),
-        statsService.getProfile(deviceId),
-        statsService.getPatternDNA(deviceId),
-        statsService.getWeeklyReports(deviceId),
-      ]);
-      return {
-        drains: d,
-        tribunals: t,
-        commitments: c,
-        chatMessages: m,
-        checkIns: ci,
-        spiralTimers: st,
-        externalInputs: ei,
-        graveyard: g,
-        stats: profile?.stats || DEFAULT_STATS,
-        settings: profile?.settings || null,
-        patternDNA: pdna,
-        weeklyReports: wr,
-      };
+      try {
+        const [
+          d, t, c, m, ci, st, ei, g, profile, pdna, wr,
+        ] = await Promise.all([
+          drainsService.getDrains(deviceId),
+          tribunalsService.getTribunals(deviceId),
+          commitmentsService.getCommitments(deviceId),
+          chatService.getChatMessages(deviceId),
+          checkinsService.getCheckins(deviceId),
+          spiralService.getSpiralTimers(deviceId),
+          inputsService.getExternalInputs(deviceId),
+          graveyardService.getGraveyardEntries(deviceId),
+          statsService.getProfile(deviceId),
+          statsService.getPatternDNA(deviceId),
+          statsService.getWeeklyReports(deviceId),
+        ]);
+        return {
+          drains: d,
+          tribunals: t,
+          commitments: c,
+          chatMessages: m,
+          checkIns: ci,
+          spiralTimers: st,
+          externalInputs: ei,
+          graveyard: g,
+          stats: profile?.stats || DEFAULT_STATS,
+          settings: profile?.settings || null,
+          patternDNA: pdna,
+          weeklyReports: wr,
+        };
+      } catch {
+        return {
+          drains: [],
+          tribunals: [],
+          commitments: [],
+          chatMessages: [],
+          checkIns: [],
+          spiralTimers: [],
+          externalInputs: [],
+          graveyard: [],
+          stats: DEFAULT_STATS,
+          settings: null,
+          patternDNA: null,
+          weeklyReports: [],
+        };
+      }
     },
     enabled: !!deviceId,
   });

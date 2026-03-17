@@ -1,34 +1,47 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
-  TouchableOpacity,
   TextInput,
   Animated,
   KeyboardAvoidingView,
   Platform,
-  ActivityIndicator,
+  RefreshControl,
 } from 'react-native';
-import { Lock, Check, Plus, ShieldAlert, Camera, Mic } from 'lucide-react-native';
-import * as Haptics from 'expo-haptics';
+import ReanimatedAnimated, { FadeInDown } from 'react-native-reanimated';
+import { Lock, Check, ShieldAlert, Camera, Mic, Share2 } from 'lucide-react-native';
+import { useRouter } from 'expo-router';
 import { useApp } from '@/providers/AppProvider';
 import Colors from '@/constants/colors';
 import { formatTimestamp, formatDeadline } from '@/utils/helpers';
+import AnimatedPressable from '@/components/AnimatedPressable';
+import { SkeletonList } from '@/components/SkeletonLoader';
+import SwipeableRow from '@/components/SwipeableRow';
+import EmptyState from '@/components/EmptyState';
+import { haptic } from '@/utils/haptics';
 
 export default function VaultScreen() {
-  const { commitments, addCommitment, submitProof, isLoading } = useApp();
+  const { commitments, addCommitment, submitProof, addToGraveyard, isLoading, refetchData } = useApp();
   const [showAdd, setShowAdd] = useState<boolean>(false);
   const [newDecision, setNewDecision] = useState<string>('');
   const [proofInputs, setProofInputs] = useState<Record<string, string>>({});
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
   const addAnim = useRef(new Animated.Value(0)).current;
+  const router = useRouter();
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await refetchData();
+    setRefreshing(false);
+  }, [refetchData]);
 
   if (isLoading) {
     return (
-      <View style={{ flex: 1, backgroundColor: Colors.bg, justifyContent: 'center', alignItems: 'center' }}>
-        <ActivityIndicator color={Colors.accent} size="large" />
+      <View style={{ flex: 1, backgroundColor: Colors.bg, justifyContent: 'center', padding: 20 }}>
+        <SkeletonList count={4} />
       </View>
     );
   }
@@ -42,7 +55,7 @@ export default function VaultScreen() {
   const handleAdd = async () => {
     if (!newDecision.trim()) return;
     await addCommitment({ decision: newDecision.trim(), source: 'manual' });
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    haptic.success();
     setNewDecision('');
     setShowAdd(false);
     addAnim.setValue(0);
@@ -52,13 +65,24 @@ export default function VaultScreen() {
     const proof = proofInputs[id];
     if (!proof?.trim()) return;
     await submitProof({ id, proof: proof.trim() });
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    haptic.success();
     setProofInputs((prev) => {
       const next = { ...prev };
       delete next[id];
       return next;
     });
     setExpandedId(null);
+  };
+
+  const handleSwipeComplete = async (id: string) => {
+    await submitProof({ id, proof: 'Completed via swipe' });
+    haptic.success();
+  };
+
+  const handleSwipeAbandon = async (id: string) => {
+    const commitment = commitments.find((c) => c.id === id);
+    await addToGraveyard({ type: 'broken_commitment', description: commitment?.decision || 'Abandoned commitment', originalId: id });
+    haptic.warning();
   };
 
   const pending = commitments.filter((c) => !c.proofSubmitted && !c.shamed);
@@ -76,7 +100,18 @@ export default function VaultScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={100}
     >
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={Colors.accent}
+            colors={[Colors.accent]}
+            progressBackgroundColor={Colors.bgCard}
+          />
+        }
+      >
         <View style={styles.header}>
           <Text style={styles.headerTitle}>COMMITMENT VAULT</Text>
           <Text style={styles.headerSub}>LOCKED DECISIONS. PROOF REQUIRED. NO MERCY.</Text>
@@ -99,80 +134,104 @@ export default function VaultScreen() {
             </View>
           </View>
 
-          {pending.map((c) => {
+          {pending.map((c, index) => {
             const isExpanded = expandedId === c.id;
             const isOverdue = c.deadline < Date.now();
             return (
-              <TouchableOpacity
+              <ReanimatedAnimated.View
                 key={c.id}
-                style={styles.vaultItem}
-                onPress={() => setExpandedId(isExpanded ? null : c.id)}
-                activeOpacity={0.7}
+                entering={FadeInDown.delay(index * 80).duration(400)}
               >
-                <View style={styles.itemTop}>
-                  <View
-                    style={[
-                      styles.statusBadge,
-                      isOverdue ? styles.statusOverdue : styles.statusPending,
-                    ]}
+                <SwipeableRow
+                  onSwipeRight={() => handleSwipeComplete(c.id)}
+                  onSwipeLeft={() => handleSwipeAbandon(c.id)}
+                  rightIcon="check"
+                  rightLabel="DONE"
+                  rightColor={Colors.accent}
+                  leftIcon="skull"
+                  leftLabel="ABANDON"
+                  leftColor={Colors.danger}
+                >
+                  <AnimatedPressable
+                    style={styles.vaultItem}
+                    onPress={() => setExpandedId(isExpanded ? null : c.id)}
+                    haptic="light"
                   >
-                    <Text
-                      style={[
-                        styles.statusText,
-                        isOverdue ? styles.statusTextOverdue : styles.statusTextPending,
-                      ]}
-                    >
-                      {isOverdue ? 'OVERDUE' : 'PENDING'}
-                    </Text>
-                  </View>
-                  {isOverdue && (
-                    <Text style={styles.shameNote}>🔴 SHAME NOTE POSTED</Text>
-                  )}
-                </View>
-                <Text style={styles.commitmentText}>{c.decision}</Text>
-                <Text style={styles.commitmentMeta}>
-                  Locked: {formatTimestamp(c.timestamp)} · Due: {formatDeadline(c.deadline)}
-                </Text>
-
-                {isExpanded && (
-                  <View style={styles.proofSection}>
-                    <Text style={styles.proveLabel}>PROVE IT:</Text>
-                    <View style={styles.proofButtons}>
-                      <TouchableOpacity style={styles.proofTypeBtn} activeOpacity={0.7}>
-                        <Camera color={Colors.text} size={14} />
-                        <Text style={styles.proofTypeBtnText}>PHOTO</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity style={styles.proofTypeBtn} activeOpacity={0.7}>
-                        <Text style={styles.proofTypeBtnText}>✍ TEXT</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity style={styles.proofTypeBtn} activeOpacity={0.7}>
-                        <Mic color={Colors.text} size={14} />
-                        <Text style={styles.proofTypeBtnText}>VOICE</Text>
-                      </TouchableOpacity>
+                    <View style={styles.itemTop}>
+                      <View
+                        style={[
+                          styles.statusBadge,
+                          isOverdue ? styles.statusOverdue : styles.statusPending,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.statusText,
+                            isOverdue ? styles.statusTextOverdue : styles.statusTextPending,
+                          ]}
+                        >
+                          {isOverdue ? 'OVERDUE' : 'PENDING'}
+                        </Text>
+                      </View>
+                      <View style={styles.itemTopRight}>
+                        <AnimatedPressable
+                          style={styles.shareBtn}
+                          onPress={() => router.push('/share-commitment' as any)}
+                          haptic="light"
+                        >
+                          <Share2 color={Colors.textMuted} size={16} />
+                        </AnimatedPressable>
+                        {isOverdue && (
+                          <Text style={styles.shameNote}>🔴 SHAME NOTE POSTED</Text>
+                        )}
+                      </View>
                     </View>
-                    <TextInput
-                      style={styles.proofInput}
-                      placeholder="Describe what you did..."
-                      placeholderTextColor={Colors.textMuted}
-                      value={proofInputs[c.id] || ''}
-                      onChangeText={(val) =>
-                        setProofInputs((prev) => ({ ...prev, [c.id]: val }))
-                      }
-                      multiline
-                      textAlignVertical="top"
-                    />
-                    <TouchableOpacity
-                      style={[styles.submitBtn, !(proofInputs[c.id]?.trim()) && styles.submitBtnDisabled]}
-                      onPress={() => handleProof(c.id)}
-                      disabled={!(proofInputs[c.id]?.trim())}
-                      activeOpacity={0.7}
-                    >
-                      <Check color={Colors.bg} size={14} />
-                      <Text style={styles.submitBtnText}>SUBMIT PROOF</Text>
-                    </TouchableOpacity>
-                  </View>
-                )}
-              </TouchableOpacity>
+                    <Text style={styles.commitmentText}>{c.decision}</Text>
+                    <Text style={styles.commitmentMeta}>
+                      Locked: {formatTimestamp(c.timestamp)} · Due: {formatDeadline(c.deadline)}
+                    </Text>
+
+                    {isExpanded && (
+                      <View style={styles.proofSection}>
+                        <Text style={styles.proveLabel}>PROVE IT:</Text>
+                        <View style={styles.proofButtons}>
+                          <AnimatedPressable style={styles.proofTypeBtn} haptic="light">
+                            <Camera color={Colors.text} size={14} />
+                            <Text style={styles.proofTypeBtnText}>PHOTO</Text>
+                          </AnimatedPressable>
+                          <AnimatedPressable style={styles.proofTypeBtn} haptic="light">
+                            <Text style={styles.proofTypeBtnText}>✍ TEXT</Text>
+                          </AnimatedPressable>
+                          <AnimatedPressable style={styles.proofTypeBtn} haptic="light">
+                            <Mic color={Colors.text} size={14} />
+                            <Text style={styles.proofTypeBtnText}>VOICE</Text>
+                          </AnimatedPressable>
+                        </View>
+                        <TextInput
+                          style={styles.proofInput}
+                          placeholder="Describe what you did..."
+                          placeholderTextColor={Colors.textMuted}
+                          value={proofInputs[c.id] || ''}
+                          onChangeText={(val) =>
+                            setProofInputs((prev) => ({ ...prev, [c.id]: val }))
+                          }
+                          multiline
+                          textAlignVertical="top"
+                        />
+                        <AnimatedPressable
+                          style={[styles.submitBtn, !(proofInputs[c.id]?.trim()) && styles.submitBtnDisabled]}
+                          onPress={() => handleProof(c.id)}
+                          disabled={!(proofInputs[c.id]?.trim())}
+                          haptic="medium"
+                        >
+                          <Check color={Colors.bg} size={14} />
+                          <Text style={styles.submitBtnText}>SUBMIT PROOF</Text>
+                        </AnimatedPressable>
+                      </View>
+                    )}
+                  </AnimatedPressable>
+                </SwipeableRow>
+              </ReanimatedAnimated.View>
             );
           })}
 
@@ -230,34 +289,32 @@ export default function VaultScreen() {
               textAlignVertical="top"
               testID="vault-decision-input"
             />
-            <TouchableOpacity
+            <AnimatedPressable
               style={[styles.lockBtn, !newDecision.trim() && styles.lockBtnDisabled]}
               onPress={handleAdd}
               disabled={!newDecision.trim()}
-              activeOpacity={0.7}
+              haptic="medium"
             >
               <Lock color={Colors.bg} size={14} />
               <Text style={styles.lockBtnText}>LOCK IT IN</Text>
-            </TouchableOpacity>
+            </AnimatedPressable>
           </Animated.View>
 
-          <TouchableOpacity
+          <AnimatedPressable
             style={styles.addManualBtn}
             onPress={toggleAdd}
-            activeOpacity={0.7}
+            haptic="light"
             testID="vault-add"
           >
             <Text style={styles.addManualBtnText}>+ ADD MANUAL COMMITMENT</Text>
-          </TouchableOpacity>
+          </AnimatedPressable>
 
           {commitments.length === 0 && (
-            <View style={styles.emptyState}>
-              <Lock color={Colors.textMuted} size={40} />
-              <Text style={styles.emptyTitle}>VAULT IS EMPTY</Text>
-              <Text style={styles.emptyDesc}>
-                Make a decision in the Drain or Tribunal to lock it here.
-              </Text>
-            </View>
+            <EmptyState
+              icon={<Lock color={Colors.textMuted} size={40} />}
+              title="VAULT IS EMPTY"
+              subtitle="Make a decision in the Drain or Tribunal to lock it here."
+            />
           )}
         </View>
       </ScrollView>
@@ -313,6 +370,7 @@ const styles = StyleSheet.create({
     color: Colors.text,
     fontSize: 28,
     fontWeight: '900' as const,
+    fontFamily: 'monospace',
     lineHeight: 32,
   },
   statKey: {
@@ -335,6 +393,14 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 8,
+  },
+  itemTopRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  shareBtn: {
+    padding: 4,
   },
   statusBadge: {
     paddingHorizontal: 8,

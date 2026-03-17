@@ -4,9 +4,11 @@ import * as SplashScreen from "expo-splash-screen";
 import React, { useEffect } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { StatusBar } from "expo-status-bar";
+import ToastLib from "react-native-toast-message";
 import { AppProvider, useApp } from "@/providers/AppProvider";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import OfflineBanner from "@/components/OfflineBanner";
+import { toastConfig } from "@/components/Toast";
 import { registerForPushNotifications, scheduleDailyCheckinReminder, scheduleWeeklyReportReminder } from "@/services/notifications";
 import Colors from "@/constants/colors";
 
@@ -41,6 +43,7 @@ function RootLayoutNav() {
       }}
     >
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+      <Stack.Screen name="onboarding" options={{ headerShown: false, presentation: "fullScreenModal" }} />
       <Stack.Screen name="leaderboard" options={{ title: "LEADERBOARD", presentation: "modal" }} />
       <Stack.Screen name="echo-detector" options={{ title: "ECHO DETECTOR", presentation: "modal" }} />
       <Stack.Screen name="settings" options={{ title: "SETTINGS", presentation: "modal" }} />
@@ -52,6 +55,9 @@ function RootLayoutNav() {
       <Stack.Screen name="graveyard" options={{ title: "THE GRAVEYARD", presentation: "modal" }} />
       <Stack.Screen name="pattern-dna" options={{ title: "PATTERN DNA", presentation: "modal" }} />
       <Stack.Screen name="external-inputs" options={{ title: "EXTERNAL INPUTS", presentation: "modal" }} />
+      <Stack.Screen name="reflection" options={{ title: "REFLECTION", presentation: "modal" }} />
+      <Stack.Screen name="achievements" options={{ title: "ACHIEVEMENTS", presentation: "modal" }} />
+      <Stack.Screen name="share-commitment" options={{ title: "SHARE", presentation: "modal" }} />
     </Stack>
   );
 }
@@ -70,6 +76,7 @@ export default function RootLayout() {
             <OfflineBanner />
             <NotificationInitializer />
             <RootLayoutNav />
+            <ToastLib config={toastConfig} />
           </AppProvider>
         </GestureHandlerRootView>
       </QueryClientProvider>

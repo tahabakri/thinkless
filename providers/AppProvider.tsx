@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import createContextHook from '@nkzw/create-context-hook';
+import Toast from 'react-native-toast-message';
 import {
   ThoughtDrain,
   TribunalSession,
@@ -17,6 +19,9 @@ import {
   SocraPersonality,
 } from '@/types';
 import { getDeviceId, registerDevice } from '@/lib/device';
+import { ThemeMode, themes } from '@/constants/colors';
+import achievements, { AchievementStats } from '@/constants/achievements';
+import { BadgeType } from '@/components/Badge';
 import * as ai from '@/services/ai';
 import * as drainsService from '@/services/drains';
 import * as tribunalsService from '@/services/tribunals';
@@ -45,6 +50,13 @@ export const [AppProvider, useApp] = createContextHook(() => {
   // Device ID
   const [deviceId, setDeviceId] = useState<string | null>(null);
 
+  // Theme
+  const [themeMode, setThemeMode] = useState<ThemeMode>('default');
+  const currentTheme = themes[themeMode];
+
+  // Achievements
+  const [unlockedBadges, setUnlockedBadges] = useState<BadgeType[]>([]);
+
   // Core data
   const [drains, setDrains] = useState<ThoughtDrain[]>([]);
   const [tribunals, setTribunals] = useState<TribunalSession[]>([]);
@@ -63,12 +75,18 @@ export const [AppProvider, useApp] = createContextHook(() => {
   const [slapEnabled, setSlapEnabled] = useState(true);
   const [slapFrequency, setSlapFrequency] = useState<'aggressive' | 'daily' | 'gentle'>('daily');
 
-  // Initialize device
+  // Initialize device & load theme
   useEffect(() => {
     (async () => {
       const id = await getDeviceId();
       try { await registerDevice(id); } catch {}
       setDeviceId(id);
+      const savedTheme = await AsyncStorage.getItem('themeMode');
+      if (savedTheme && (savedTheme === 'default' || savedTheme === 'oled' || savedTheme === 'night')) {
+        setThemeMode(savedTheme);
+      }
+      const savedBadges = await AsyncStorage.getItem('unlockedBadges');
+      if (savedBadges) setUnlockedBadges(JSON.parse(savedBadges));
     })();
   }, []);
 
@@ -461,6 +479,63 @@ export const [AppProvider, useApp] = createContextHook(() => {
     },
   });
 
+  // ── Theme ──
+
+  const changeTheme = useCallback(async (mode: ThemeMode) => {
+    setThemeMode(mode);
+    await AsyncStorage.setItem('themeMode', mode);
+  }, []);
+
+  // ── Achievement checking ──
+
+  const checkAchievements = useCallback(() => {
+    const achievementStats: AchievementStats = {
+      totalDrains: stats.totalDrains,
+      totalTribunals: stats.totalTribunals,
+      commitmentsKept: stats.commitmentsKept,
+      currentStreak: stats.currentStreak,
+      totalChatMessages: chatMessages.length,
+      loopsBroken: drains.filter((d) => d.resolved).length,
+    };
+
+    const newlyUnlocked: BadgeType[] = [];
+    achievements.forEach((a) => {
+      if (!unlockedBadges.includes(a.id) && a.check(achievementStats)) {
+        newlyUnlocked.push(a.id);
+      }
+    });
+
+    if (newlyUnlocked.length > 0) {
+      const updated = [...unlockedBadges, ...newlyUnlocked];
+      setUnlockedBadges(updated);
+      AsyncStorage.setItem('unlockedBadges', JSON.stringify(updated));
+      newlyUnlocked.forEach((id) => {
+        const def = achievements.find((a) => a.id === id);
+        if (def) {
+          Toast.show({
+            type: 'achievement',
+            text1: `BADGE UNLOCKED: ${def.label}`,
+            text2: def.description,
+            visibilityTime: 4000,
+          });
+        }
+      });
+    }
+  }, [stats, chatMessages, drains, unlockedBadges]);
+
+  // Check achievements when stats change
+  useEffect(() => {
+    if (stats.totalDrains > 0 || stats.totalTribunals > 0) {
+      checkAchievements();
+    }
+  }, [stats.totalDrains, stats.totalTribunals, stats.commitmentsKept, stats.currentStreak, chatMessages.length]);
+
+  // ── Refetch ──
+
+  const refetchData = useCallback(() => {
+    return dataQuery.refetch();
+  }, [dataQuery]);
+
   // ── Computed values ──
 
   const echoReport: EchoReport = useMemo(
@@ -556,5 +631,16 @@ export const [AppProvider, useApp] = createContextHook(() => {
     clearChat: clearChatMutation.mutateAsync,
     clearAllData: clearAllDataMutation.mutateAsync,
     updateNotificationSettings: updateNotificationSettingsMutation.mutateAsync,
+
+    // Theme
+    themeMode,
+    currentTheme,
+    changeTheme,
+
+    // Achievements
+    unlockedBadges,
+
+    // Refetch
+    refetchData,
   };
 });

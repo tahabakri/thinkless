@@ -5,31 +5,32 @@ import {
   StyleSheet,
   ScrollView,
   TextInput,
-  TouchableOpacity,
   KeyboardAvoidingView,
   Platform,
-  ActivityIndicator,
-  Modal,
 } from 'react-native';
+import Animated, { FadeInDown, FadeIn } from 'react-native-reanimated';
 import { Send, Trash2, Sparkles, Shield, Skull as SkullIcon, Timer, Smile } from 'lucide-react-native';
-import * as Haptics from 'expo-haptics';
+import BottomSheet from '@gorhom/bottom-sheet';
+import AnimatedPressable from '@/components/AnimatedPressable';
+import ThemedBottomSheet from '@/components/ThemedBottomSheet';
+import { SkeletonCard } from '@/components/SkeletonLoader';
 import { useApp } from '@/providers/AppProvider';
 import Colors from '@/constants/colors';
 import { SocraPersonality } from '@/types';
+import { haptic } from '@/utils/haptics';
 
 interface PersonalityOption {
   id: SocraPersonality;
   label: string;
   desc: string;
-  pro: boolean;
 }
 
 const PERSONALITIES: PersonalityOption[] = [
-  { id: 'default', label: 'DEFAULT', desc: 'Blunt, warm, zero-tolerance', pro: false },
-  { id: 'drill_sergeant', label: 'DRILL SERGEANT', desc: 'Maximum harsh. No mercy.', pro: true },
-  { id: 'stoic', label: 'STOIC', desc: 'Marcus Aurelius vibes', pro: true },
-  { id: 'dark_humor', label: 'DARK HUMOR', desc: 'Roasts you into action', pro: true },
-  { id: 'deadline', label: 'DEADLINE', desc: 'Everything is a countdown', pro: true },
+  { id: 'default', label: 'DEFAULT', desc: 'Blunt, warm, zero-tolerance' },
+  { id: 'drill_sergeant', label: 'DRILL SERGEANT', desc: 'Maximum harsh. No mercy.' },
+  { id: 'stoic', label: 'STOIC', desc: 'Marcus Aurelius vibes' },
+  { id: 'dark_humor', label: 'DARK HUMOR', desc: 'Roasts you into action' },
+  { id: 'deadline', label: 'DEADLINE', desc: 'Everything is a countdown' },
 ];
 
 export default function ChatScreen() {
@@ -37,9 +38,9 @@ export default function ChatScreen() {
     chatMessages, sendChat, isChatPending, clearChat,
     personality, setPersonalityMode, isLoading,
   } = useApp();
-  const [text, setText] = useState<string>('');
-  const [showPersonality, setShowPersonality] = useState<boolean>(false);
+  const [text, setText] = useState('');
   const scrollRef = useRef<ScrollView>(null);
+  const bottomSheetRef = useRef<BottomSheet>(null);
 
   useEffect(() => {
     if (chatMessages.length > 0) {
@@ -49,29 +50,31 @@ export default function ChatScreen() {
 
   if (isLoading) {
     return (
-      <View style={{ flex: 1, backgroundColor: Colors.bg, justifyContent: 'center', alignItems: 'center' }}>
-        <ActivityIndicator color={Colors.accent} size="large" />
+      <View style={{ flex: 1, backgroundColor: Colors.bg, padding: 20, paddingTop: 60 }}>
+        <SkeletonCard lines={2} />
+        <View style={{ height: 12 }} />
+        <SkeletonCard lines={3} />
       </View>
     );
   }
 
   const handleSend = async () => {
     if (!text.trim() || isChatPending) return;
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    haptic.light();
     const msg = text.trim();
     setText('');
     await sendChat(msg);
   };
 
   const handleClear = async () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    haptic.warning();
     await clearChat();
   };
 
   const handleSetPersonality = async (mode: SocraPersonality) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    haptic.selection();
     await setPersonalityMode(mode);
-    setShowPersonality(false);
+    bottomSheetRef.current?.close();
   };
 
   const getPersonalityIcon = useCallback(() => {
@@ -93,22 +96,21 @@ export default function ChatScreen() {
       keyboardVerticalOffset={100}
     >
       <View style={styles.topBar}>
-        <TouchableOpacity
+        <AnimatedPressable
           style={styles.personalityButton}
-          onPress={() => setShowPersonality(true)}
-          activeOpacity={0.7}
+          onPress={() => bottomSheetRef.current?.snapToIndex(0)}
         >
           {getPersonalityIcon()}
           <Text style={styles.personalityLabel}>
             {currentPersonality?.label || 'DEFAULT'}
           </Text>
-        </TouchableOpacity>
+        </AnimatedPressable>
         <View style={{ flex: 1 }} />
         {chatMessages.length > 0 && (
-          <TouchableOpacity style={styles.clearButton} onPress={handleClear} activeOpacity={0.7}>
+          <AnimatedPressable style={styles.clearButton} onPress={handleClear} haptic="medium">
             <Trash2 color={Colors.textMuted} size={14} />
             <Text style={styles.clearText}>CLEAR</Text>
-          </TouchableOpacity>
+          </AnimatedPressable>
         )}
       </View>
 
@@ -138,55 +140,60 @@ export default function ChatScreen() {
                 "I keep going back to...",
                 "I'm stuck on...",
               ].map((starter, i) => (
-                <TouchableOpacity
+                <AnimatedPressable
                   key={i}
                   style={styles.starterChip}
                   onPress={() => setText(starter)}
-                  activeOpacity={0.7}
                 >
                   <Text style={styles.starterText}>{starter}</Text>
-                </TouchableOpacity>
+                </AnimatedPressable>
               ))}
             </View>
           </View>
         )}
 
-        {chatMessages.map((msg) => (
-          <View
+        {chatMessages.map((msg, index) => (
+          <Animated.View
             key={msg.id}
-            style={[
-              styles.messageBubble,
-              msg.role === 'user' ? styles.userBubble : styles.socraBubble,
-            ]}
+            entering={FadeInDown.delay(50).duration(300)}
           >
-            {msg.role === 'socra' && (
-              <View style={styles.socraTagRow}>
-                <Text style={styles.socraLabel}>SOCRA</Text>
-                {personality !== 'default' && (
-                  <Text style={styles.modeTag}>{currentPersonality?.label}</Text>
-                )}
-                <View style={styles.socraTagLine} />
-              </View>
-            )}
-            <Text
+            <View
               style={[
-                styles.messageText,
-                msg.role === 'user' ? styles.userText : styles.socraText,
+                styles.messageBubble,
+                msg.role === 'user' ? styles.userBubble : styles.socraBubble,
               ]}
             >
-              {msg.text}
-            </Text>
-          </View>
+              {msg.role === 'socra' && (
+                <View style={styles.socraTagRow}>
+                  <Text style={styles.socraLabel}>SOCRA</Text>
+                  {personality !== 'default' && (
+                    <Text style={styles.modeTag}>{currentPersonality?.label}</Text>
+                  )}
+                  <View style={styles.socraTagLine} />
+                </View>
+              )}
+              <Text
+                style={[
+                  styles.messageText,
+                  msg.role === 'user' ? styles.userText : styles.socraText,
+                ]}
+              >
+                {msg.text}
+              </Text>
+            </View>
+          </Animated.View>
         ))}
 
         {isChatPending && (
-          <View style={[styles.messageBubble, styles.socraBubble]}>
-            <View style={styles.socraTagRow}>
-              <Text style={styles.socraLabel}>SOCRA</Text>
-              <View style={styles.socraTagLine} />
+          <Animated.View entering={FadeIn}>
+            <View style={[styles.messageBubble, styles.socraBubble]}>
+              <View style={styles.socraTagRow}>
+                <Text style={styles.socraLabel}>SOCRA</Text>
+                <View style={styles.socraTagLine} />
+              </View>
+              <Text style={styles.typingDots}>. . .</Text>
             </View>
-            <ActivityIndicator color={Colors.accent} size="small" />
-          </View>
+          </Animated.View>
         )}
       </ScrollView>
 
@@ -201,68 +208,41 @@ export default function ChatScreen() {
           maxLength={1000}
           testID="chat-input"
         />
-        <TouchableOpacity
+        <AnimatedPressable
           style={[styles.sendButton, (!text.trim() || isChatPending) && styles.sendDisabled]}
           onPress={handleSend}
+          haptic="medium"
           disabled={!text.trim() || isChatPending}
-          activeOpacity={0.7}
-          testID="chat-send"
         >
           <Send color={Colors.bg} size={18} />
-        </TouchableOpacity>
+        </AnimatedPressable>
       </View>
 
-      <Modal
-        visible={showPersonality}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowPersonality(false)}
+      <ThemedBottomSheet
+        ref={bottomSheetRef}
+        title="SOCRA MODES"
+        snapPoints={['55%']}
       >
-        <TouchableOpacity
-          style={styles.modalOverlay}
-          activeOpacity={1}
-          onPress={() => setShowPersonality(false)}
-        >
-          <View style={styles.modalContent} onStartShouldSetResponder={() => true}>
-            <View style={styles.modalHandle} />
-            <Text style={styles.modalTitle}>SOCRA MODES</Text>
-            <Text style={styles.modalSub}>
-              {'Choose your coach style.'}
-            </Text>
-
-            {PERSONALITIES.map((p) => {
-              const isActive = personality === p.id;
-              const isLocked = false;
-              return (
-                <TouchableOpacity
-                  key={p.id}
-                  style={[
-                    styles.modeCard,
-                    isActive && styles.modeCardActive,
-                    isLocked && styles.modeCardLocked,
-                  ]}
-                  onPress={() => !isLocked && handleSetPersonality(p.id)}
-                  activeOpacity={isLocked ? 1 : 0.7}
-                >
-                  <View style={styles.modeHeader}>
-                    <Text
-                      style={[
-                        styles.modeLabel,
-                        isActive && styles.modeLabelActive,
-                        isLocked && styles.modeLabelLocked,
-                      ]}
-                    >
-                      {p.label}
-                    </Text>
-                    {isActive && <Text style={styles.activeTag}>ACTIVE</Text>}
-                  </View>
-                  <Text style={styles.modeDesc}>{p.desc}</Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        </TouchableOpacity>
-      </Modal>
+        <Text style={styles.modalSub}>Choose your coach style.</Text>
+        {PERSONALITIES.map((p) => {
+          const isActive = personality === p.id;
+          return (
+            <AnimatedPressable
+              key={p.id}
+              style={[styles.modeCard, isActive && styles.modeCardActive]}
+              onPress={() => handleSetPersonality(p.id)}
+            >
+              <View style={styles.modeHeader}>
+                <Text style={[styles.modeLabel, isActive && styles.modeLabelActive]}>
+                  {p.label}
+                </Text>
+                {isActive && <Text style={styles.activeTag}>ACTIVE</Text>}
+              </View>
+              <Text style={styles.modeDesc}>{p.desc}</Text>
+            </AnimatedPressable>
+          );
+        })}
+      </ThemedBottomSheet>
     </KeyboardAvoidingView>
   );
 }
@@ -293,7 +273,7 @@ const styles = StyleSheet.create({
   personalityLabel: {
     color: Colors.textSecondary,
     fontSize: 9,
-    fontWeight: '800' as const,
+    fontWeight: '800',
     letterSpacing: 1,
   },
   clearButton: {
@@ -306,7 +286,7 @@ const styles = StyleSheet.create({
   clearText: {
     color: Colors.textMuted,
     fontSize: 9,
-    fontWeight: '700' as const,
+    fontWeight: '700',
     letterSpacing: 1,
   },
   messageList: {
@@ -324,7 +304,7 @@ const styles = StyleSheet.create({
   socraIntro: {
     color: Colors.accent,
     fontSize: 32,
-    fontWeight: '900' as const,
+    fontWeight: '900',
     letterSpacing: 6,
     marginBottom: 12,
   },
@@ -337,14 +317,14 @@ const styles = StyleSheet.create({
   socraTagline: {
     color: Colors.textSecondary,
     fontSize: 13,
-    fontWeight: '600' as const,
+    fontWeight: '600',
     textAlign: 'center',
     marginBottom: 16,
   },
   socraHint: {
     color: Colors.textMuted,
     fontSize: 13,
-    fontWeight: '500' as const,
+    fontWeight: '500',
     textAlign: 'center',
     lineHeight: 20,
     maxWidth: 280,
@@ -364,7 +344,7 @@ const styles = StyleSheet.create({
   starterText: {
     color: Colors.textSecondary,
     fontSize: 12,
-    fontWeight: '600' as const,
+    fontWeight: '600',
   },
   messageBubble: {
     maxWidth: '85%',
@@ -394,13 +374,13 @@ const styles = StyleSheet.create({
   socraLabel: {
     color: Colors.accent,
     fontSize: 9,
-    fontWeight: '900' as const,
+    fontWeight: '900',
     letterSpacing: 3,
   },
   modeTag: {
     color: Colors.textMuted,
     fontSize: 7,
-    fontWeight: '700' as const,
+    fontWeight: '700',
     letterSpacing: 1,
     backgroundColor: Colors.bg3,
     paddingHorizontal: 4,
@@ -414,7 +394,7 @@ const styles = StyleSheet.create({
   },
   messageText: {
     fontSize: 14,
-    fontWeight: '500' as const,
+    fontWeight: '500',
     lineHeight: 20,
   },
   userText: {
@@ -422,7 +402,13 @@ const styles = StyleSheet.create({
   },
   socraText: {
     color: Colors.text,
-    fontWeight: '600' as const,
+    fontWeight: '600',
+  },
+  typingDots: {
+    color: Colors.accent,
+    fontSize: 18,
+    fontWeight: '700',
+    letterSpacing: 4,
   },
   inputBar: {
     flexDirection: 'row',
@@ -440,7 +426,7 @@ const styles = StyleSheet.create({
     borderColor: Colors.border,
     color: Colors.text,
     fontSize: 14,
-    fontWeight: '500' as const,
+    fontWeight: '500',
     padding: 12,
     maxHeight: 100,
   },
@@ -452,36 +438,10 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.textMuted,
     opacity: 0.4,
   },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.8)',
-    justifyContent: 'flex-end',
-  },
-  modalContent: {
-    backgroundColor: Colors.bgCard,
-    borderTopWidth: 1,
-    borderTopColor: Colors.border,
-    padding: 20,
-    paddingBottom: 40,
-  },
-  modalHandle: {
-    width: 40,
-    height: 4,
-    backgroundColor: Colors.border,
-    alignSelf: 'center',
-    marginBottom: 16,
-  },
-  modalTitle: {
-    color: Colors.text,
-    fontSize: 20,
-    fontWeight: '900' as const,
-    letterSpacing: 2,
-    marginBottom: 4,
-  },
   modalSub: {
     color: Colors.textMuted,
     fontSize: 11,
-    fontWeight: '500' as const,
+    fontWeight: '500',
     marginBottom: 16,
   },
   modeCard: {
@@ -495,9 +455,6 @@ const styles = StyleSheet.create({
     borderColor: Colors.accent,
     backgroundColor: Colors.accentDim,
   },
-  modeCardLocked: {
-    opacity: 0.5,
-  },
   modeHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -507,33 +464,21 @@ const styles = StyleSheet.create({
   modeLabel: {
     color: Colors.text,
     fontSize: 13,
-    fontWeight: '800' as const,
+    fontWeight: '800',
     letterSpacing: 1,
   },
   modeLabelActive: {
     color: Colors.accent,
   },
-  modeLabelLocked: {
-    color: Colors.textMuted,
-  },
-  proTag: {
-    color: Colors.bg,
-    backgroundColor: Colors.accent,
-    fontSize: 8,
-    fontWeight: '900' as const,
-    letterSpacing: 1,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-  },
   activeTag: {
     color: Colors.accent,
     fontSize: 8,
-    fontWeight: '900' as const,
+    fontWeight: '900',
     letterSpacing: 1,
   },
   modeDesc: {
     color: Colors.textMuted,
     fontSize: 11,
-    fontWeight: '500' as const,
+    fontWeight: '500',
   },
 });

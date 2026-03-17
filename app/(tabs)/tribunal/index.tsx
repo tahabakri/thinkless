@@ -4,14 +4,16 @@ import {
   Text,
   StyleSheet,
   TextInput,
-  TouchableOpacity,
   ScrollView,
   Animated,
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
+import ReanimatedAnimated, { FadeInDown } from 'react-native-reanimated';
 import { Lock } from 'lucide-react-native';
-import * as Haptics from 'expo-haptics';
+import Toast from 'react-native-toast-message';
+import { haptic } from '@/utils/haptics';
+import AnimatedPressable from '@/components/AnimatedPressable';
 import { useApp } from '@/providers/AppProvider';
 import Colors from '@/constants/colors';
 import { formatTimestamp } from '@/utils/helpers';
@@ -28,8 +30,10 @@ export default function TribunalScreen() {
   const [timeLeft, setTimeLeft] = useState<number>(150);
   const [timerActive, setTimerActive] = useState<boolean>(false);
   const [loadingVerdict, setLoadingVerdict] = useState<boolean>(false);
+  const [focusMode, setFocusMode] = useState<boolean>(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const fadeAnim = useRef(new Animated.Value(0)).current;
+  const focusPulse = useRef(new Animated.Value(0)).current;
 
   const startTimer = useCallback(() => {
     setTimeLeft(150);
@@ -43,7 +47,7 @@ export default function TribunalScreen() {
           if (prev <= 1) {
             if (timerRef.current) clearInterval(timerRef.current);
             setTimerActive(false);
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+            haptic.warning();
             return 0;
           }
           return prev - 1;
@@ -55,6 +59,39 @@ export default function TribunalScreen() {
     };
   }, [timerActive]);
 
+  useEffect(() => {
+    if (focusMode) {
+      const loop = Animated.loop(
+        Animated.sequence([
+          Animated.timing(focusPulse, {
+            toValue: 1,
+            duration: 1000,
+            useNativeDriver: false,
+          }),
+          Animated.timing(focusPulse, {
+            toValue: 0,
+            duration: 1000,
+            useNativeDriver: false,
+          }),
+        ])
+      );
+      loop.start();
+      return () => loop.stop();
+    } else {
+      focusPulse.setValue(0);
+    }
+  }, [focusMode, focusPulse]);
+
+  const focusBorderWidth = focusPulse.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1, 3],
+  });
+
+  const focusBorderOpacity = focusPulse.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.5, 1],
+  });
+
   const formatTime = (seconds: number): string => {
     const m = Math.floor(seconds / 60);
     const s = seconds % 60;
@@ -63,23 +100,25 @@ export default function TribunalScreen() {
 
   const handleStartFor = () => {
     if (!topic.trim()) return;
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    haptic.medium();
     setPhase('for');
     startTimer();
   };
 
   const handleSwitchSides = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    haptic.medium();
     if (timerRef.current) clearInterval(timerRef.current);
     setTimerActive(false);
     setPhase('against');
+    setFocusMode(false);
     startTimer();
   };
 
   const handleDeliver = async () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+    haptic.heavy();
     if (timerRef.current) clearInterval(timerRef.current);
     setTimerActive(false);
+    setFocusMode(false);
     setLoadingVerdict(true);
     setPhase('verdict');
 
@@ -109,15 +148,26 @@ export default function TribunalScreen() {
     setTimeLeft(150);
     setTimerActive(false);
     setLoadingVerdict(false);
+    setFocusMode(false);
     fadeAnim.setValue(0);
   };
 
   const handleLockDecision = async () => {
     if (verdict) {
       await addCommitment({ decision: `TRIBUNAL: ${topic} — ${verdict}`, source: 'tribunal' });
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      haptic.success();
+      Toast.show({
+        type: 'success',
+        text1: 'Verdict Locked',
+        text2: 'Your decision has been sealed in the vault.',
+      });
       handleReset();
     }
+  };
+
+  const toggleFocusMode = () => {
+    setFocusMode((prev) => !prev);
+    haptic.selection();
   };
 
   if (phase === 'setup') {
@@ -162,15 +212,15 @@ export default function TribunalScreen() {
               testID="tribunal-topic"
             />
 
-            <TouchableOpacity
+            <AnimatedPressable
               style={[styles.primaryButton, !topic.trim() && styles.buttonDisabled]}
               onPress={handleStartFor}
               disabled={!topic.trim()}
-              activeOpacity={0.7}
+              haptic="medium"
               testID="tribunal-start"
             >
               <Text style={styles.primaryButtonText}>BEGIN TRIBUNAL →</Text>
-            </TouchableOpacity>
+            </AnimatedPressable>
 
             {tribunals.length > 0 && (
               <View style={styles.historySection}>
@@ -179,18 +229,23 @@ export default function TribunalScreen() {
                   <Text style={styles.sectionLabel}>PAST VERDICTS</Text>
                   <View style={styles.sectionLine} />
                 </View>
-                {tribunals.slice(0, 5).map((t) => (
-                  <View key={t.id} style={styles.historyCard}>
-                    <View style={styles.historyHeader}>
-                      <Text style={styles.historyTime}>{formatTimestamp(t.timestamp)}</Text>
-                      <View style={styles.lockedBadge}>
-                        <Lock color={Colors.accent} size={9} />
-                        <Text style={styles.lockedText}>LOCKED</Text>
+                {tribunals.slice(0, 5).map((t, index) => (
+                  <ReanimatedAnimated.View
+                    key={t.id}
+                    entering={FadeInDown.delay(index * 80).duration(400)}
+                  >
+                    <View style={styles.historyCard}>
+                      <View style={styles.historyHeader}>
+                        <Text style={styles.historyTime}>{formatTimestamp(t.timestamp)}</Text>
+                        <View style={styles.lockedBadge}>
+                          <Lock color={Colors.accent} size={9} />
+                          <Text style={styles.lockedText}>LOCKED</Text>
+                        </View>
                       </View>
+                      <Text style={styles.historyTopic}>{t.topic}</Text>
+                      <Text style={styles.historyVerdict}>{t.verdict}</Text>
                     </View>
-                    <Text style={styles.historyTopic}>{t.topic}</Text>
-                    <Text style={styles.historyVerdict}>{t.verdict}</Text>
-                  </View>
+                  </ReanimatedAnimated.View>
                 ))}
               </View>
             )}
@@ -202,6 +257,7 @@ export default function TribunalScreen() {
 
   if (phase === 'for' || phase === 'against') {
     const isFor = phase === 'for';
+    const inputBorderColor = isFor ? Colors.accent : Colors.danger;
     return (
       <KeyboardAvoidingView
         style={styles.container}
@@ -231,45 +287,85 @@ export default function TribunalScreen() {
             </View>
 
             <View style={styles.timerControls}>
-              <TouchableOpacity
+              <AnimatedPressable
                 style={styles.timerButton}
                 onPress={() => setTimerActive((r) => !r)}
-                activeOpacity={0.7}
+                haptic="light"
               >
                 <Text style={styles.timerButtonText}>{timerActive ? 'PAUSE' : 'START'}</Text>
-              </TouchableOpacity>
+              </AnimatedPressable>
+
+              <AnimatedPressable
+                style={[
+                  styles.timerButton,
+                  focusMode && styles.focusButtonActive,
+                ]}
+                onPress={toggleFocusMode}
+                haptic="light"
+              >
+                <Text
+                  style={[
+                    styles.timerButtonText,
+                    focusMode && styles.focusButtonTextActive,
+                  ]}
+                >
+                  {focusMode ? 'FOCUS ON' : 'FOCUS'}
+                </Text>
+              </AnimatedPressable>
             </View>
 
-            <TextInput
-              style={[
-                styles.argumentInput,
-                { borderColor: isFor ? Colors.accent : Colors.danger },
-              ]}
-              placeholder={
-                isFor
-                  ? "Make the strongest case FOR this. Every reason, every benefit, every upside. Don't hold back."
-                  : 'Now tear it apart. Every risk, every downside, every reason NOT to.'
-              }
-              placeholderTextColor={Colors.textMuted}
-              multiline
-              value={isFor ? sideA : sideB}
-              onChangeText={isFor ? setSideA : setSideB}
-              textAlignVertical="top"
-              testID={isFor ? 'tribunal-side-a' : 'tribunal-side-b'}
-            />
+            {focusMode && (
+              <View style={styles.focusBadgeContainer}>
+                <View style={styles.focusBadge}>
+                  <Text style={styles.focusBadgeText}>FOCUS MODE</Text>
+                </View>
+              </View>
+            )}
 
-            <TouchableOpacity
+            <Animated.View
+              style={
+                focusMode
+                  ? {
+                      borderWidth: focusBorderWidth,
+                      borderColor: inputBorderColor,
+                      opacity: focusBorderOpacity,
+                      marginBottom: 16,
+                    }
+                  : { marginBottom: 16 }
+              }
+            >
+              <TextInput
+                style={[
+                  styles.argumentInput,
+                  { borderColor: inputBorderColor },
+                  focusMode && styles.argumentInputFocus,
+                ]}
+                placeholder={
+                  isFor
+                    ? "Make the strongest case FOR this. Every reason, every benefit, every upside. Don't hold back."
+                    : 'Now tear it apart. Every risk, every downside, every reason NOT to.'
+                }
+                placeholderTextColor={Colors.textMuted}
+                multiline
+                value={isFor ? sideA : sideB}
+                onChangeText={isFor ? setSideA : setSideB}
+                textAlignVertical="top"
+                testID={isFor ? 'tribunal-side-a' : 'tribunal-side-b'}
+              />
+            </Animated.View>
+
+            <AnimatedPressable
               style={[
                 styles.phaseButton,
                 { backgroundColor: isFor ? Colors.accent : Colors.danger },
               ]}
               onPress={isFor ? handleSwitchSides : handleDeliver}
-              activeOpacity={0.7}
+              haptic="medium"
             >
               <Text style={styles.phaseButtonText}>
                 {isFor ? 'SWITCH SIDES →' : 'SUMMON THE VERDICT →'}
               </Text>
-            </TouchableOpacity>
+            </AnimatedPressable>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -300,21 +396,21 @@ export default function TribunalScreen() {
                 <Text style={styles.verdictLock}>🔒 THIS DECISION IS NOW SEALED</Text>
               </View>
 
-              <TouchableOpacity
+              <AnimatedPressable
                 style={styles.primaryButton}
                 onPress={handleLockDecision}
-                activeOpacity={0.7}
+                haptic="heavy"
               >
                 <Text style={styles.primaryButtonText}>LOCK IN VAULT & COMMIT →</Text>
-              </TouchableOpacity>
+              </AnimatedPressable>
 
-              <TouchableOpacity
+              <AnimatedPressable
                 style={styles.outlineButton}
                 onPress={handleReset}
-                activeOpacity={0.7}
+                haptic="light"
               >
                 <Text style={styles.outlineButtonText}>NEW TRIBUNAL</Text>
-              </TouchableOpacity>
+              </AnimatedPressable>
             </Animated.View>
           ) : null}
         </View>
@@ -443,6 +539,7 @@ const styles = StyleSheet.create({
     letterSpacing: 4,
     lineHeight: 80,
     fontVariant: ['tabular-nums'],
+    fontFamily: 'monospace',
   },
   timerLabel: {
     color: Colors.textMuted,
@@ -469,6 +566,28 @@ const styles = StyleSheet.create({
     fontWeight: '800' as const,
     letterSpacing: 2,
   },
+  focusButtonActive: {
+    borderColor: Colors.accent,
+    backgroundColor: Colors.accentDim,
+  },
+  focusButtonTextActive: {
+    color: Colors.accent,
+  },
+  focusBadgeContainer: {
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  focusBadge: {
+    backgroundColor: Colors.accentDim,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+  },
+  focusBadgeText: {
+    color: Colors.accent,
+    fontSize: 10,
+    fontWeight: '800' as const,
+    letterSpacing: 3,
+  },
   argumentInput: {
     borderWidth: 1,
     color: Colors.text,
@@ -477,7 +596,9 @@ const styles = StyleSheet.create({
     padding: 16,
     minHeight: 200,
     lineHeight: 21,
-    marginBottom: 16,
+  },
+  argumentInputFocus: {
+    borderWidth: 0,
   },
   phaseButton: {
     paddingVertical: 16,

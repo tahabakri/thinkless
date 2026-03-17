@@ -4,14 +4,22 @@ import {
   Text,
   StyleSheet,
   ScrollView,
-  TouchableOpacity,
   Switch,
   Alert,
 } from 'react-native';
 import { Stack } from 'expo-router';
-import { Bell, Clock, Trash2, Info } from 'lucide-react-native';
+import { Bell, Clock, Trash2, Info, Moon, Sun, Monitor } from 'lucide-react-native';
+import Toast from 'react-native-toast-message';
+import AnimatedPressable from '@/components/AnimatedPressable';
 import { useApp } from '@/providers/AppProvider';
-import Colors from '@/constants/colors';
+import Colors, { ThemeMode } from '@/constants/colors';
+import { haptic } from '@/utils/haptics';
+
+const THEME_OPTIONS: { id: ThemeMode; label: string; desc: string; icon: React.ReactNode }[] = [
+  { id: 'default', label: 'DEFAULT', desc: 'Dark with lime accent', icon: <Monitor color={Colors.textSecondary} size={16} /> },
+  { id: 'oled', label: 'OLED BLACK', desc: 'True black for battery savings', icon: <Moon color={Colors.textSecondary} size={16} /> },
+  { id: 'night', label: 'NIGHT', desc: 'Softer blue-tinted theme', icon: <Sun color={Colors.textSecondary} size={16} /> },
+];
 
 export default function SettingsScreen() {
   const {
@@ -20,6 +28,8 @@ export default function SettingsScreen() {
     slapFrequency,
     updateNotificationSettings,
     clearAllData,
+    themeMode,
+    changeTheme,
   } = useApp();
 
   const frequencies = [
@@ -37,17 +47,61 @@ export default function SettingsScreen() {
         {
           text: 'Delete Everything',
           style: 'destructive',
-          onPress: () => clearAllData(),
+          onPress: async () => {
+            await clearAllData();
+            haptic.heavy();
+            Toast.show({
+              type: 'warning',
+              text1: 'ALL DATA CLEARED',
+              text2: 'Starting fresh. Make it count this time.',
+            });
+          },
         },
       ]
     );
+  };
+
+  const handleThemeChange = async (mode: ThemeMode) => {
+    haptic.selection();
+    await changeTheme(mode);
+    Toast.show({
+      type: 'success',
+      text1: 'THEME UPDATED',
+      text2: `Switched to ${mode.toUpperCase()} mode.`,
+    });
   };
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <Stack.Screen options={{ title: 'SETTINGS' }} />
 
+      {/* Theme */}
+      <View style={styles.sectionHeader}>
+        <View style={styles.sectionLine} />
+        <Text style={styles.sectionTitle}>THEME</Text>
+        <View style={styles.sectionLine} />
+      </View>
 
+      <View style={styles.themeList}>
+        {THEME_OPTIONS.map((t) => (
+          <AnimatedPressable
+            key={t.id}
+            style={[
+              styles.themeCard,
+              themeMode === t.id && styles.themeCardActive,
+            ]}
+            onPress={() => handleThemeChange(t.id)}
+          >
+            {t.icon}
+            <Text style={[styles.themeLabel, themeMode === t.id && styles.themeLabelActive]}>
+              {t.label}
+            </Text>
+            <Text style={styles.themeDesc}>{t.desc}</Text>
+          </AnimatedPressable>
+        ))}
+      </View>
+
+      {/* Notifications */}
       <View style={styles.sectionHeader}>
         <View style={styles.sectionLine} />
         <Text style={styles.sectionTitle}>NOTIFICATIONS</Text>
@@ -88,14 +142,16 @@ export default function SettingsScreen() {
 
           <View style={styles.frequencyList}>
             {frequencies.map((f) => (
-              <TouchableOpacity
+              <AnimatedPressable
                 key={f.id}
                 style={[
                   styles.frequencyCard,
                   slapFrequency === f.id && styles.frequencyCardActive,
                 ]}
-                onPress={() => updateNotificationSettings({ slapFrequency: f.id })}
-                activeOpacity={0.7}
+                onPress={() => {
+                  haptic.selection();
+                  updateNotificationSettings({ slapFrequency: f.id });
+                }}
               >
                 <Text
                   style={[
@@ -106,7 +162,7 @@ export default function SettingsScreen() {
                   {f.label}
                 </Text>
                 <Text style={styles.frequencyDesc}>{f.desc}</Text>
-              </TouchableOpacity>
+              </AnimatedPressable>
             ))}
           </View>
           <Text style={styles.slapNote}>
@@ -115,6 +171,7 @@ export default function SettingsScreen() {
         </>
       )}
 
+      {/* About */}
       <View style={styles.sectionHeader}>
         <View style={styles.sectionLine} />
         <Text style={styles.sectionTitle}>ABOUT</Text>
@@ -125,15 +182,16 @@ export default function SettingsScreen() {
         <View style={styles.settingRow}>
           <Info color={Colors.textSecondary} size={16} />
           <Text style={styles.settingLabel}>Version</Text>
-          <Text style={styles.settingValue}>1.0.0</Text>
+          <Text style={styles.settingValue}>1.1.0</Text>
         </View>
       </View>
 
+      {/* Danger */}
       <View style={styles.dangerSection}>
-        <TouchableOpacity style={styles.dangerButton} onPress={handleClearData} activeOpacity={0.7}>
+        <AnimatedPressable style={styles.dangerButton} onPress={handleClearData} haptic="heavy">
           <Trash2 color={Colors.danger} size={16} />
           <Text style={styles.dangerText}>CLEAR ALL DATA</Text>
-        </TouchableOpacity>
+        </AnimatedPressable>
       </View>
 
       <Text style={styles.footer}>
@@ -153,31 +211,6 @@ const styles = StyleSheet.create({
     padding: 16,
     paddingBottom: 40,
   },
-  proCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
-    backgroundColor: Colors.accentDim,
-    borderWidth: 1,
-    borderColor: Colors.accent,
-    padding: 16,
-    marginBottom: 24,
-  },
-  proInfo: {
-    flex: 1,
-  },
-  proTitle: {
-    color: Colors.accent,
-    fontSize: 14,
-    fontWeight: '900' as const,
-    letterSpacing: 2,
-    marginBottom: 2,
-  },
-  proDesc: {
-    color: Colors.textSecondary,
-    fontSize: 12,
-    fontWeight: '500' as const,
-  },
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -193,8 +226,40 @@ const styles = StyleSheet.create({
   sectionTitle: {
     color: Colors.textMuted,
     fontSize: 10,
-    fontWeight: '700' as const,
+    fontWeight: '700',
     letterSpacing: 3,
+  },
+  themeList: {
+    gap: 8,
+    marginBottom: 20,
+  },
+  themeCard: {
+    backgroundColor: Colors.bgCard,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    padding: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  themeCardActive: {
+    borderColor: Colors.accent,
+    backgroundColor: Colors.accentDim,
+  },
+  themeLabel: {
+    color: Colors.text,
+    fontSize: 13,
+    fontWeight: '800',
+    letterSpacing: 1,
+  },
+  themeLabelActive: {
+    color: Colors.accent,
+  },
+  themeDesc: {
+    color: Colors.textMuted,
+    fontSize: 11,
+    flex: 1,
+    textAlign: 'right',
   },
   settingCard: {
     backgroundColor: Colors.bgCard,
@@ -211,13 +276,13 @@ const styles = StyleSheet.create({
   settingLabel: {
     color: Colors.text,
     fontSize: 14,
-    fontWeight: '600' as const,
+    fontWeight: '600',
     flex: 1,
   },
   settingValue: {
     color: Colors.textMuted,
     fontSize: 13,
-    fontWeight: '600' as const,
+    fontWeight: '600',
   },
   divider: {
     height: 1,
@@ -244,7 +309,7 @@ const styles = StyleSheet.create({
   frequencyLabel: {
     color: Colors.textSecondary,
     fontSize: 11,
-    fontWeight: '900' as const,
+    fontWeight: '900',
     letterSpacing: 1,
     marginBottom: 4,
   },
@@ -254,12 +319,12 @@ const styles = StyleSheet.create({
   frequencyDesc: {
     color: Colors.textMuted,
     fontSize: 10,
-    fontWeight: '500' as const,
+    fontWeight: '500',
   },
   slapNote: {
     color: Colors.textMuted,
     fontSize: 11,
-    fontWeight: '500' as const,
+    fontWeight: '500',
     lineHeight: 16,
     marginBottom: 20,
   },
@@ -279,13 +344,13 @@ const styles = StyleSheet.create({
   dangerText: {
     color: Colors.danger,
     fontSize: 12,
-    fontWeight: '800' as const,
+    fontWeight: '800',
     letterSpacing: 2,
   },
   footer: {
     color: Colors.textMuted,
     fontSize: 11,
-    fontWeight: '500' as const,
+    fontWeight: '500',
     textAlign: 'center',
     lineHeight: 18,
   },

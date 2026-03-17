@@ -1,21 +1,31 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
-  TouchableOpacity,
-  Animated,
-  ActivityIndicator,
+  RefreshControl,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import {
   Trophy, Settings, Zap, Sunrise, Timer, FileText,
-  Skull, Dna, BookOpen, History, AlertTriangle,
+  Skull, Dna, BookOpen, History, AlertTriangle, Award,
 } from 'lucide-react-native';
 import Svg, { Circle } from 'react-native-svg';
+import ReAnimated, {
+  FadeInDown,
+  useSharedValue,
+  useAnimatedStyle,
+  withTiming,
+  Easing,
+  runOnJS,
+} from 'react-native-reanimated';
 import { useApp } from '@/providers/AppProvider';
-import Colors from '@/constants/colors';
+import Colors, { getScoreRingColor, MONO_FONT } from '@/constants/colors';
+import AnimatedPressable from '@/components/AnimatedPressable';
+import { SkeletonCard } from '@/components/SkeletonLoader';
+import EmptyState from '@/components/EmptyState';
+import { haptic } from '@/utils/haptics';
 
 const RING_SIZE = 200;
 const RING_RADIUS = 85;
@@ -35,10 +45,48 @@ interface QuickAction {
   accent?: boolean;
 }
 
+/* ── Animated counting score display ─────────────────────────── */
+function AnimatedScore({ target }: { target: number }) {
+  const animValue = useSharedValue(0);
+  const [display, setDisplay] = useState(0);
+
+  useEffect(() => {
+    animValue.value = 0;
+    animValue.value = withTiming(target, {
+      duration: 1200,
+      easing: Easing.out(Easing.cubic),
+    });
+
+    // Drive the JS-side display via a polling approach since
+    // runOnJS inside withTiming callback fires only once at the end.
+    let frame: ReturnType<typeof requestAnimationFrame>;
+    const start = Date.now();
+    const duration = 1200;
+    const tick = () => {
+      const elapsed = Date.now() - start;
+      const progress = Math.min(elapsed / duration, 1);
+      // ease out cubic
+      const eased = 1 - Math.pow(1 - progress, 3);
+      setDisplay(Math.round(eased * target));
+      if (progress < 1) {
+        frame = requestAnimationFrame(tick);
+      }
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [target]);
+
+  return (
+    <Text style={styles.ringScore}>{display}</Text>
+  );
+}
+
 export default function HomeScreen() {
   const router = useRouter();
   const appContext = useApp();
-  const pulseAnim = useRef(new Animated.Value(1)).current;
+
+  const [refreshing, setRefreshing] = useState(false);
+  const [breakdownExpanded, setBreakdownExpanded] = useState(false);
 
   const stats = appContext?.stats ?? { chamberScore: 0, totalDrains: 0, totalTribunals: 0, commitmentsKept: 0, commitmentsBroken: 0, currentStreak: 0, longestStreak: 0, weeklyScores: [] };
   const commitments = appContext?.commitments ?? [];
@@ -48,23 +96,30 @@ export default function HomeScreen() {
   const interventionNeeded = appContext?.interventionNeeded ?? false;
   const drains = appContext?.drains ?? [];
   const isLoading = appContext?.isLoading ?? true;
+  const refetchData = appContext?.refetchData;
 
   const score = stats.chamberScore;
   const fill = RING_CIRCUMFERENCE * (score / 100);
+  const ringColor = getScoreRingColor(score);
 
-  useEffect(() => {
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulseAnim, { toValue: 1.03, duration: 1200, useNativeDriver: true }),
-        Animated.timing(pulseAnim, { toValue: 1, duration: 1200, useNativeDriver: true }),
-      ])
-    ).start();
-  }, [pulseAnim]);
+  /* ── Pull-to-refresh ───────────────────────────────────────── */
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    haptic.light();
+    try {
+      await refetchData?.();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [refetchData]);
 
+  /* ── Skeleton loading state ────────────────────────────────── */
   if (isLoading) {
     return (
-      <View style={{ flex: 1, backgroundColor: Colors.bg, justifyContent: 'center', alignItems: 'center' }}>
-        <ActivityIndicator color={Colors.accent} size="large" />
+      <View style={{ flex: 1, backgroundColor: Colors.bg, paddingTop: 60, paddingHorizontal: 20, gap: 16 }}>
+        <SkeletonCard lines={2} />
+        <SkeletonCard lines={4} />
+        <SkeletonCard lines={3} />
       </View>
     );
   }
@@ -112,10 +167,27 @@ export default function HomeScreen() {
       icon: <BookOpen color={Colors.textSecondary} size={16} />,
       route: '/external-inputs',
     },
+    {
+      label: 'ACHIEVEMENTS',
+      icon: <Award color={Colors.textSecondary} size={16} />,
+      route: '/achievements',
+    },
   ];
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.content}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+          tintColor={Colors.accent}
+          colors={[Colors.accent]}
+          progressBackgroundColor={Colors.bg2}
+        />
+      }
+    >
       <View style={styles.header}>
         <View>
           <Text style={styles.headerTitle}>THINKLESS</Text>
@@ -131,10 +203,12 @@ export default function HomeScreen() {
       <View style={styles.headerDivider} />
 
       {!todayCheckedIn && (
-        <TouchableOpacity
+        <AnimatedPressable
           style={styles.checkinBanner}
-          onPress={() => router.push('/daily-checkin' as never)}
-          activeOpacity={0.7}
+          onPress={() => {
+            haptic.medium();
+            router.push('/daily-checkin' as never);
+          }}
         >
           <Sunrise color={Colors.bg} size={18} />
           <View style={styles.checkinBannerInfo}>
@@ -142,24 +216,34 @@ export default function HomeScreen() {
             <Text style={styles.checkinBannerSub}>3 questions. 2 minutes. No thinking.</Text>
           </View>
           <Text style={styles.checkinBannerArrow}>→</Text>
-        </TouchableOpacity>
+        </AnimatedPressable>
       )}
 
       {interventionNeeded && (
-        <TouchableOpacity
+        <AnimatedPressable
           style={styles.interventionBanner}
-          onPress={() => router.push('/tribunal' as never)}
-          activeOpacity={0.7}
+          onPress={() => {
+            haptic.warning();
+            router.push('/tribunal' as never);
+          }}
         >
           <AlertTriangle color={Colors.bg} size={18} />
           <View style={styles.interventionInfo}>
             <Text style={styles.interventionTitle}>INTERVENTION</Text>
             <Text style={styles.interventionSub}>Same loop detected 3+ times. Tribunal required.</Text>
           </View>
-        </TouchableOpacity>
+        </AnimatedPressable>
       )}
 
-      <Animated.View style={[styles.ringWrap, { transform: [{ scale: pulseAnim }] }]}>
+      {/* ── Escape Score Ring (tappable) ──────────────────────── */}
+      <AnimatedPressable
+        haptic="light"
+        style={styles.ringWrap}
+        onPress={() => {
+          haptic.selection();
+          setBreakdownExpanded((prev) => !prev);
+        }}
+      >
         <Svg width={RING_SIZE} height={RING_SIZE} viewBox={`0 0 ${RING_SIZE} ${RING_SIZE}`}>
           <Circle
             cx={RING_SIZE / 2}
@@ -174,7 +258,7 @@ export default function HomeScreen() {
             cy={RING_SIZE / 2}
             r={RING_RADIUS}
             fill="none"
-            stroke={Colors.accent}
+            stroke={ringColor}
             strokeWidth={12}
             strokeDasharray={`${fill} ${RING_CIRCUMFERENCE}`}
             strokeLinecap="butt"
@@ -182,10 +266,34 @@ export default function HomeScreen() {
           />
         </Svg>
         <View style={styles.ringCenter}>
-          <Text style={styles.ringScore}>{score}</Text>
+          <AnimatedScore target={score} />
           <Text style={styles.ringLabel}>ESCAPE SCORE</Text>
+          <Text style={styles.ringHint}>{breakdownExpanded ? 'TAP TO COLLAPSE' : 'TAP FOR BREAKDOWN'}</Text>
         </View>
-      </Animated.View>
+      </AnimatedPressable>
+
+      {/* ── Inline breakdown expansion below ring ────────────── */}
+      {breakdownExpanded && (
+        <View style={styles.breakdownExpandedWrap}>
+          {breakdown.map((item, idx) => (
+            <ReAnimated.View
+              key={item.label}
+              entering={FadeInDown.delay(idx * 80).duration(300)}
+              style={styles.breakdownExpandedRow}
+            >
+              <Text style={styles.breakdownExpandedLabel}>{item.label}</Text>
+              <Text
+                style={[
+                  styles.breakdownExpandedValue,
+                  { color: item.good ? Colors.accent : Colors.danger },
+                ]}
+              >
+                {item.value}
+              </Text>
+            </ReAnimated.View>
+          ))}
+        </View>
+      )}
 
       <View style={styles.sectionHeader}>
         <View style={styles.sectionLine} />
@@ -193,27 +301,39 @@ export default function HomeScreen() {
         <View style={styles.sectionLine} />
       </View>
 
-      {breakdown.map((item) => (
-        <View key={item.label} style={styles.breakdownItem}>
-          <View style={styles.breakdownHeader}>
-            <Text style={styles.breakdownLabel}>{item.label}</Text>
-            <Text style={[styles.breakdownValue, { color: item.good ? Colors.accent : Colors.danger }]}>
-              {item.value}
-            </Text>
-          </View>
-          <View style={styles.barBg}>
-            <View
-              style={[
-                styles.barFill,
-                {
-                  width: `${Math.min(100, item.value)}%`,
-                  backgroundColor: item.good ? Colors.accent : Colors.danger,
-                },
-              ]}
-            />
-          </View>
-        </View>
-      ))}
+      {breakdown.length === 0 ? (
+        <EmptyState
+          icon={<Zap color={Colors.textMuted} size={32} />}
+          title="No data yet"
+          subtitle="Complete your morning ritual to see today's breakdown."
+        />
+      ) : (
+        breakdown.map((item, idx) => (
+          <ReAnimated.View
+            key={item.label}
+            entering={FadeInDown.delay(idx * 60).duration(350)}
+            style={styles.breakdownItem}
+          >
+            <View style={styles.breakdownHeader}>
+              <Text style={styles.breakdownLabel}>{item.label}</Text>
+              <Text style={[styles.breakdownValue, { color: item.good ? Colors.accent : Colors.danger }]}>
+                {item.value}
+              </Text>
+            </View>
+            <View style={styles.barBg}>
+              <View
+                style={[
+                  styles.barFill,
+                  {
+                    width: `${Math.min(100, item.value)}%`,
+                    backgroundColor: item.good ? Colors.accent : Colors.danger,
+                  },
+                ]}
+              />
+            </View>
+          </ReAnimated.View>
+        ))
+      )}
 
       <View style={styles.divider} />
 
@@ -261,17 +381,19 @@ export default function HomeScreen() {
       </View>
 
       {pendingCommitments > 0 && (
-        <TouchableOpacity
+        <AnimatedPressable
           style={styles.alertCard}
-          onPress={() => router.push('/vault' as never)}
-          activeOpacity={0.7}
+          onPress={() => {
+            haptic.warning();
+            router.push('/vault' as never);
+          }}
           testID="pending-commitments-alert"
         >
           <Zap color={Colors.danger} size={16} />
           <Text style={styles.alertText}>
             {pendingCommitments} COMMITMENT{pendingCommitments > 1 ? 'S' : ''} AWAITING PROOF
           </Text>
-        </TouchableOpacity>
+        </AnimatedPressable>
       )}
 
       <View style={styles.streakRow}>
@@ -308,51 +430,64 @@ export default function HomeScreen() {
       </View>
 
       <View style={styles.quickGrid}>
-        {quickActions.map((action) => (
-          <TouchableOpacity
+        {quickActions.map((action, idx) => (
+          <ReAnimated.View
             key={action.label}
-            style={[styles.quickCard, action.accent && styles.quickCardAccent]}
-            onPress={() => router.push(action.route as never)}
-            activeOpacity={0.7}
+            entering={FadeInDown.delay(idx * 50).duration(300)}
+            style={{ width: '48%', flexGrow: 1 }}
           >
-            {action.icon}
-            <Text style={[styles.quickLabel, action.accent && styles.quickLabelAccent]}>
-              {action.label}
-            </Text>
-          </TouchableOpacity>
+            <AnimatedPressable
+              style={[styles.quickCard, action.accent && styles.quickCardAccent]}
+              onPress={() => {
+                haptic.light();
+                router.push(action.route as never);
+              }}
+            >
+              {action.icon}
+              <Text style={[styles.quickLabel, action.accent && styles.quickLabelAccent]}>
+                {action.label}
+              </Text>
+            </AnimatedPressable>
+          </ReAnimated.View>
         ))}
       </View>
 
       <View style={styles.navRow}>
-        <TouchableOpacity
+        <AnimatedPressable
           style={styles.navButton}
-          onPress={() => router.push('/leaderboard' as never)}
-          activeOpacity={0.7}
+          onPress={() => {
+            haptic.light();
+            router.push('/leaderboard' as never);
+          }}
           testID="nav-leaderboard"
         >
           <Trophy color={Colors.textMuted} size={14} />
           <Text style={styles.navButtonText}>LEADERBOARD</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
+        </AnimatedPressable>
+        <AnimatedPressable
           style={styles.navButton}
-          onPress={() => router.push('/graveyard' as never)}
-          activeOpacity={0.7}
+          onPress={() => {
+            haptic.light();
+            router.push('/graveyard' as never);
+          }}
         >
           <Skull color={Colors.danger} size={14} />
           <Text style={[styles.navButtonText, { color: Colors.danger }]}>GRAVEYARD</Text>
-        </TouchableOpacity>
+        </AnimatedPressable>
       </View>
 
       <View style={styles.bottomRow}>
-        <TouchableOpacity
+        <AnimatedPressable
           style={styles.settingsButton}
-          onPress={() => router.push('/settings' as never)}
-          activeOpacity={0.7}
+          onPress={() => {
+            haptic.light();
+            router.push('/settings' as never);
+          }}
           testID="nav-settings"
         >
           <Settings color={Colors.textMuted} size={14} />
           <Text style={styles.navButtonText}>SETTINGS</Text>
-        </TouchableOpacity>
+        </AnimatedPressable>
       </View>
     </ScrollView>
   );
@@ -478,6 +613,7 @@ const styles = StyleSheet.create({
     fontWeight: '900' as const,
     letterSpacing: -2,
     lineHeight: 72,
+    fontFamily: MONO_FONT,
   },
   ringLabel: {
     color: Colors.textMuted,
@@ -485,6 +621,38 @@ const styles = StyleSheet.create({
     fontWeight: '700' as const,
     letterSpacing: 2,
     marginTop: 2,
+  },
+  ringHint: {
+    color: Colors.textMuted,
+    fontSize: 7,
+    fontWeight: '600' as const,
+    letterSpacing: 1,
+    marginTop: 4,
+    opacity: 0.6,
+  },
+  breakdownExpandedWrap: {
+    marginHorizontal: 20,
+    marginBottom: 16,
+    backgroundColor: Colors.bgCard,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    padding: 14,
+    gap: 10,
+  },
+  breakdownExpandedRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  breakdownExpandedLabel: {
+    color: Colors.textSecondary,
+    fontSize: 11,
+    fontWeight: '600' as const,
+  },
+  breakdownExpandedValue: {
+    fontSize: 14,
+    fontWeight: '900' as const,
+    fontFamily: MONO_FONT,
   },
   sectionHeader: {
     flexDirection: 'row',
@@ -522,6 +690,7 @@ const styles = StyleSheet.create({
   breakdownValue: {
     fontSize: 16,
     fontWeight: '900' as const,
+    fontFamily: MONO_FONT,
   },
   barBg: {
     height: 8,
@@ -554,6 +723,7 @@ const styles = StyleSheet.create({
     fontSize: 28,
     fontWeight: '900' as const,
     lineHeight: 32,
+    fontFamily: MONO_FONT,
   },
   statKey: {
     color: Colors.textMuted,
@@ -649,8 +819,6 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   quickCard: {
-    width: '48%',
-    flexGrow: 1,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,

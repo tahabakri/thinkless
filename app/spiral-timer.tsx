@@ -5,14 +5,16 @@ import {
   StyleSheet,
   ScrollView,
   TextInput,
-  TouchableOpacity,
   Animated,
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
+import { StatusBar } from 'expo-status-bar';
 import { Stack, useRouter } from 'expo-router';
-import { Timer, AlertTriangle, Zap } from 'lucide-react-native';
-import * as Haptics from 'expo-haptics';
+import { Timer, AlertTriangle, Zap, Eye, EyeOff } from 'lucide-react-native';
+import Toast from 'react-native-toast-message';
+import AnimatedPressable from '@/components/AnimatedPressable';
+import { haptic } from '@/utils/haptics';
 import { useApp } from '@/providers/AppProvider';
 import Colors from '@/constants/colors';
 
@@ -32,8 +34,10 @@ export default function SpiralTimerScreen() {
   const [timeLeft, setTimeLeft] = useState<number>(0);
   const [currentTimerId, setCurrentTimerId] = useState<string | null>(null);
   const [decision, setDecision] = useState<string>('');
+  const [focusMode, setFocusMode] = useState<boolean>(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pulseAnim = useRef(new Animated.Value(1)).current;
+  const focusBorderAnim = useRef(new Animated.Value(0.3)).current;
 
   useEffect(() => {
     if (phase === 'running' && timeLeft > 0) {
@@ -42,11 +46,11 @@ export default function SpiralTimerScreen() {
           if (prev <= 1) {
             if (timerRef.current) clearInterval(timerRef.current);
             setPhase('timesup');
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+            haptic.error();
             return 0;
           }
           if (prev <= 30) {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            haptic.light();
           }
           return prev - 1;
         });
@@ -69,6 +73,21 @@ export default function SpiralTimerScreen() {
     return () => pulseAnim.stopAnimation();
   }, [phase]);
 
+  useEffect(() => {
+    if (focusMode && phase === 'running') {
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(focusBorderAnim, { toValue: 1, duration: 1000, useNativeDriver: false }),
+          Animated.timing(focusBorderAnim, { toValue: 0.3, duration: 1000, useNativeDriver: false }),
+        ])
+      ).start();
+    } else {
+      focusBorderAnim.stopAnimation();
+      focusBorderAnim.setValue(0.3);
+    }
+    return () => focusBorderAnim.stopAnimation();
+  }, [focusMode, phase]);
+
   const formatTime = (seconds: number): string => {
     const m = Math.floor(seconds / 60);
     const s = seconds % 60;
@@ -77,7 +96,7 @@ export default function SpiralTimerScreen() {
 
   const handleStart = async () => {
     if (!topic.trim()) return;
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+    haptic.heavy();
     const timer = await addSpiralTimer({ topic: topic.trim(), durationMinutes: selectedDuration });
     setCurrentTimerId(timer.id);
     setTimeLeft(selectedDuration * 60);
@@ -86,10 +105,15 @@ export default function SpiralTimerScreen() {
 
   const handleDecide = async () => {
     if (!decision.trim() || !currentTimerId) return;
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    haptic.success();
     await completeSpiralTimer({ id: currentTimerId, decision: decision.trim() });
     await addCommitment({ decision: `SPIRAL: ${topic} → ${decision.trim()}`, source: 'manual' });
     setPhase('decided');
+    Toast.show({
+      type: 'success',
+      text1: 'Decision Locked',
+      text2: 'Your decision has been committed.',
+    });
   };
 
   const handleSkipDecision = async () => {
@@ -104,6 +128,12 @@ export default function SpiralTimerScreen() {
     setDecision('');
     setCurrentTimerId(null);
     setTimeLeft(0);
+    setFocusMode(false);
+  };
+
+  const toggleFocusMode = () => {
+    setFocusMode((prev) => !prev);
+    haptic.light();
   };
 
   const progress = phase === 'running' ? 1 - (timeLeft / (selectedDuration * 60)) : 0;
@@ -115,6 +145,7 @@ export default function SpiralTimerScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         keyboardVerticalOffset={100}
       >
+        <StatusBar style="light" />
         <ScrollView contentContainerStyle={styles.content}>
           <Stack.Screen options={{ title: 'SPIRAL TIMER' }} />
 
@@ -149,7 +180,7 @@ export default function SpiralTimerScreen() {
 
           <View style={styles.durationRow}>
             {DURATIONS.map((d) => (
-              <TouchableOpacity
+              <AnimatedPressable
                 key={d.minutes}
                 style={[
                   styles.durationCard,
@@ -157,9 +188,9 @@ export default function SpiralTimerScreen() {
                 ]}
                 onPress={() => {
                   setSelectedDuration(d.minutes);
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  haptic.light();
                 }}
-                activeOpacity={0.7}
+                haptic="none"
               >
                 <Text
                   style={[
@@ -169,19 +200,19 @@ export default function SpiralTimerScreen() {
                 >
                   {d.label}
                 </Text>
-              </TouchableOpacity>
+              </AnimatedPressable>
             ))}
           </View>
 
-          <TouchableOpacity
+          <AnimatedPressable
             style={[styles.startButton, !topic.trim() && styles.buttonDisabled]}
             onPress={handleStart}
             disabled={!topic.trim()}
-            activeOpacity={0.7}
+            haptic="heavy"
             testID="spiral-start"
           >
             <Text style={styles.startButtonText}>START THE CLOCK →</Text>
-          </TouchableOpacity>
+          </AnimatedPressable>
 
           {spiralTimers.length > 0 && (
             <>
@@ -214,8 +245,37 @@ export default function SpiralTimerScreen() {
     const isUrgent = timeLeft <= 30;
     return (
       <View style={styles.container}>
+        <StatusBar hidden={focusMode} style="light" />
         <Stack.Screen options={{ title: 'THINKING...' }} />
+        <View style={styles.runningHeader}>
+          <AnimatedPressable
+            style={[styles.focusButton, focusMode && styles.focusButtonActive]}
+            onPress={toggleFocusMode}
+            haptic="light"
+          >
+            {focusMode ? (
+              <EyeOff color={Colors.bg} size={14} />
+            ) : (
+              <Eye color={Colors.accent} size={14} />
+            )}
+            <Text style={[styles.focusButtonText, focusMode && styles.focusButtonTextActive]}>
+              {focusMode ? 'EXIT FOCUS' : 'FOCUS MODE'}
+            </Text>
+          </AnimatedPressable>
+        </View>
+        {focusMode && (
+          <Animated.View
+            style={[
+              styles.focusBorder,
+              { borderColor: Colors.accent, opacity: focusBorderAnim },
+            ]}
+            pointerEvents="none"
+          />
+        )}
         <View style={styles.timerBody}>
+          {focusMode && (
+            <Text style={styles.focusBadge}>FOCUS MODE</Text>
+          )}
           <Text style={styles.timerTopic}>{topic}</Text>
 
           <View style={styles.progressBarBg}>
@@ -229,19 +289,19 @@ export default function SpiralTimerScreen() {
             {isUrgent ? "TIME'S ALMOST UP. DECIDE." : "Think. But know the clock is ticking."}
           </Text>
 
-          <TouchableOpacity
+          <AnimatedPressable
             style={[styles.earlyDecideButton, { borderColor: isUrgent ? Colors.danger : Colors.accent }]}
             onPress={() => {
               if (timerRef.current) clearInterval(timerRef.current);
               setPhase('timesup');
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+              haptic.heavy();
             }}
-            activeOpacity={0.7}
+            haptic="none"
           >
             <Text style={[styles.earlyDecideText, { color: isUrgent ? Colors.danger : Colors.accent }]}>
               I'M READY TO DECIDE
             </Text>
-          </TouchableOpacity>
+          </AnimatedPressable>
         </View>
       </View>
     );
@@ -254,6 +314,7 @@ export default function SpiralTimerScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         keyboardVerticalOffset={100}
       >
+        <StatusBar style="light" />
         <ScrollView contentContainerStyle={styles.content}>
           <Stack.Screen options={{ title: "TIME'S UP" }} />
 
@@ -283,23 +344,23 @@ export default function SpiralTimerScreen() {
             testID="spiral-decision"
           />
 
-          <TouchableOpacity
+          <AnimatedPressable
             style={[styles.lockButton, !decision.trim() && styles.buttonDisabled]}
             onPress={handleDecide}
             disabled={!decision.trim()}
-            activeOpacity={0.7}
+            haptic="heavy"
           >
             <Zap color={Colors.bg} size={18} />
             <Text style={styles.lockButtonText}>LOCK DECISION →</Text>
-          </TouchableOpacity>
+          </AnimatedPressable>
 
-          <TouchableOpacity
+          <AnimatedPressable
             style={styles.skipButton}
             onPress={handleSkipDecision}
-            activeOpacity={0.7}
+            haptic="light"
           >
             <Text style={styles.skipButtonText}>I couldn't decide (goes to Graveyard)</Text>
-          </TouchableOpacity>
+          </AnimatedPressable>
         </ScrollView>
       </KeyboardAvoidingView>
     );
@@ -307,6 +368,7 @@ export default function SpiralTimerScreen() {
 
   return (
     <View style={styles.container}>
+      <StatusBar style="light" />
       <Stack.Screen options={{ title: 'DECIDED' }} />
       <View style={styles.decidedBody}>
         <View style={styles.decidedIcon}>
@@ -325,20 +387,20 @@ export default function SpiralTimerScreen() {
             Another unmade decision for the pile. The Graveyard grows.
           </Text>
         )}
-        <TouchableOpacity
+        <AnimatedPressable
           style={styles.startButton}
           onPress={handleReset}
-          activeOpacity={0.7}
+          haptic="medium"
         >
           <Text style={styles.startButtonText}>NEW TIMER</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
+        </AnimatedPressable>
+        <AnimatedPressable
           style={styles.outlineButton}
           onPress={() => router.back()}
-          activeOpacity={0.7}
+          haptic="light"
         >
           <Text style={styles.outlineButtonText}>BACK TO BASE</Text>
-        </TouchableOpacity>
+        </AnimatedPressable>
       </View>
     </View>
   );
@@ -473,6 +535,54 @@ const styles = StyleSheet.create({
     marginTop: 6,
     fontStyle: 'italic',
   },
+  runningHeader: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    paddingHorizontal: 16,
+    paddingTop: 8,
+  },
+  focusButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderWidth: 1,
+    borderColor: Colors.accent,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+  },
+  focusButtonActive: {
+    backgroundColor: Colors.accent,
+  },
+  focusButtonText: {
+    color: Colors.accent,
+    fontSize: 10,
+    fontWeight: '800' as const,
+    letterSpacing: 1,
+  },
+  focusButtonTextActive: {
+    color: Colors.bg,
+  },
+  focusBorder: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderWidth: 4,
+    borderColor: Colors.accent,
+    zIndex: 10,
+  },
+  focusBadge: {
+    color: Colors.accent,
+    fontSize: 10,
+    fontWeight: '900' as const,
+    letterSpacing: 4,
+    marginBottom: 12,
+    backgroundColor: Colors.accentDim,
+    paddingVertical: 4,
+    paddingHorizontal: 12,
+    overflow: 'hidden',
+  },
   timerBody: {
     flex: 1,
     alignItems: 'center',
@@ -502,6 +612,7 @@ const styles = StyleSheet.create({
     letterSpacing: 4,
     lineHeight: 100,
     fontVariant: ['tabular-nums'],
+    fontFamily: 'monospace',
   },
   timerHint: {
     color: Colors.textMuted,

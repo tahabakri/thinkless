@@ -1,93 +1,139 @@
-import React from 'react';
+import React, { useState, useEffect, memo } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
+  FlatList,
+  ActivityIndicator,
 } from 'react-native';
 import { Stack } from 'expo-router';
-import { Zap, Flame } from 'lucide-react-native';
-import { MOCK_LEADERBOARD } from '@/mocks/leaderboard';
+import { Flame } from 'lucide-react-native';
 import { useApp } from '@/providers/AppProvider';
+import { getLeaderboard } from '@/services/leaderboard';
+import { LeaderboardEntry } from '@/types';
 import Colors from '@/constants/colors';
 
-interface LeaderUser {
-  name: string;
-  score: number;
-  actions: number;
-  streak: number;
-  you: boolean;
-}
-
-const USERS: LeaderUser[] = [
-  { name: 'BreakingBad_Mo', score: 94, actions: 23, streak: 12, you: false },
-  { name: 'ActionJax99', score: 76, actions: 18, streak: 3, you: false },
-  { name: 'Thinker2Doer', score: 71, actions: 11, streak: 7, you: false },
-  { name: 'LoopBreaker_K', score: 65, actions: 9, streak: 4, you: false },
-  { name: 'PhilosophyNerd', score: 34, actions: 3, streak: 1, you: false },
-  { name: 'PerpetualPlanner', score: 12, actions: 1, streak: 0, you: false },
-];
+const LeaderboardRow = memo(function LeaderboardRow({
+  entry,
+  index,
+}: {
+  entry: LeaderboardEntry;
+  index: number;
+}) {
+  return (
+    <View style={[styles.row, entry.isYou && styles.rowYou]}>
+      <Text style={[styles.rank, index < 3 && styles.rankTop]}>{index + 1}</Text>
+      <View style={styles.infoCol}>
+        <Text style={[styles.name, entry.isYou && styles.nameYou]}>
+          {entry.isYou ? '► YOU' : entry.name}
+        </Text>
+        <View style={styles.streakRow}>
+          {(entry.streak || 0) > 0 ? (
+            <>
+              <Flame color={Colors.warning} size={10} />
+              <Text style={styles.streakText}>{entry.streak}d streak</Text>
+            </>
+          ) : (
+            <Text style={styles.streakText}>no streak</Text>
+          )}
+        </View>
+      </View>
+      <View style={styles.scoreCol}>
+        <Text style={[styles.score, index < 3 && styles.scoreTop]}>{entry.score}</Text>
+        <Text style={styles.acts}>{entry.actionsTaken} acts</Text>
+      </View>
+    </View>
+  );
+});
 
 export default function LeaderboardScreen() {
-  const { stats } = useApp();
+  const { stats, deviceId } = useApp();
+  const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const allUsers: LeaderUser[] = [
-    USERS[0],
-    { name: 'you', score: stats.chamberScore, actions: stats.totalDrains + stats.totalTribunals, streak: stats.currentStreak, you: true },
-    ...USERS.slice(1),
-  ].sort((a, b) => b.score - a.score);
+  useEffect(() => {
+    if (!deviceId) return;
+    (async () => {
+      try {
+        const { entries: leaderEntries } = await getLeaderboard(deviceId);
+        setEntries(leaderEntries);
+      } catch {
+        setEntries([
+          {
+            id: deviceId,
+            name: 'you',
+            score: stats.chamberScore,
+            actionsTaken: stats.totalDrains + stats.totalTribunals,
+            avgResponseTime: '',
+            rank: 1,
+            streak: stats.currentStreak,
+            isYou: true,
+          },
+        ]);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [deviceId, stats.chamberScore]);
+
+  if (loading) {
+    return (
+      <View style={[styles.container, styles.centered]}>
+        <Stack.Screen options={{ title: 'LEADERBOARD' }} />
+        <ActivityIndicator color={Colors.accent} size="large" />
+        <Text style={styles.loadingText}>LOADING RANKINGS...</Text>
+      </View>
+    );
+  }
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <>
       <Stack.Screen options={{ title: 'LEADERBOARD' }} />
-
-      <View style={styles.rankingInfo}>
-        <Text style={styles.rankingInfoLabel}>HOW RANKING WORKS</Text>
-        <Text style={styles.rankingInfoText}>
-          Speed from thought → action (40%) · Commitments kept (35%) · Loop breaks (15%) · Streak (10%)
-        </Text>
-        <Text style={styles.rankingInfoAccent}>Smart ideas don't count. Only done things.</Text>
-      </View>
-
-      <View style={styles.colHeaders}>
-        <Text style={[styles.colHeader, { width: 46 }]}>RANK</Text>
-        <Text style={[styles.colHeader, { flex: 1 }]}>HANDLE</Text>
-        <Text style={[styles.colHeader, { width: 60, textAlign: 'right' as const }]}>SCORE</Text>
-        <Text style={[styles.colHeader, { width: 50, textAlign: 'right' as const }]}>ACTS</Text>
-      </View>
-
-      {allUsers.map((u, i) => (
-        <View
-          key={u.name + i}
-          style={[styles.row, u.you && styles.rowYou]}
-        >
-          <Text style={[styles.rank, i < 3 && styles.rankTop]}>{i + 1}</Text>
-          <View style={styles.infoCol}>
-            <Text style={[styles.name, u.you && styles.nameYou]}>
-              {u.you ? '► YOU' : u.name}
-            </Text>
-            <View style={styles.streakRow}>
-              {u.streak > 0 ? (
-                <>
-                  <Flame color={Colors.warning} size={10} />
-                  <Text style={styles.streakText}>{u.streak}d streak</Text>
-                </>
-              ) : (
-                <Text style={styles.streakText}>no streak</Text>
-              )}
+      <FlatList
+        style={styles.container}
+        contentContainerStyle={styles.content}
+        data={entries}
+        keyExtractor={(item, index) => item.id + index}
+        renderItem={({ item, index }) => (
+          <LeaderboardRow entry={item} index={index} />
+        )}
+        ListHeaderComponent={
+          <>
+            <View style={styles.rankingInfo}>
+              <Text style={styles.rankingInfoLabel}>HOW RANKING WORKS</Text>
+              <Text style={styles.rankingInfoText}>
+                Speed from thought → action (40%) · Commitments kept (35%) · Loop breaks (15%) · Streak (10%)
+              </Text>
+              <Text style={styles.rankingInfoAccent}>Smart ideas don't count. Only done things.</Text>
             </View>
-          </View>
-          <View style={styles.scoreCol}>
-            <Text style={[styles.score, i < 3 && styles.scoreTop]}>{u.score}</Text>
-            <Text style={styles.acts}>{u.actions} acts</Text>
-          </View>
-        </View>
-      ))}
 
-      <View style={styles.divider} />
-      <Text style={styles.footerText}>TOP 3% OF ACTION-TAKERS THIS WEEK</Text>
-      <Text style={styles.footerAccent}>BOTTOM 90% STUCK THEORIZING</Text>
-    </ScrollView>
+            {entries.length > 0 && (
+              <View style={styles.colHeaders}>
+                <Text style={[styles.colHeader, { width: 46 }]}>RANK</Text>
+                <Text style={[styles.colHeader, { flex: 1 }]}>HANDLE</Text>
+                <Text style={[styles.colHeader, { width: 60, textAlign: 'right' as const }]}>SCORE</Text>
+                <Text style={[styles.colHeader, { width: 50, textAlign: 'right' as const }]}>ACTS</Text>
+              </View>
+            )}
+          </>
+        }
+        ListEmptyComponent={
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyTitle}>NO RANKINGS YET</Text>
+            <Text style={styles.emptyText}>
+              Start draining thoughts and keeping commitments to appear on the leaderboard.
+            </Text>
+          </View>
+        }
+        ListFooterComponent={
+          <>
+            <View style={styles.divider} />
+            <Text style={styles.footerText}>ANONYMOUS RANKINGS · DEVICE-BASED</Text>
+            <Text style={styles.footerAccent}>ACTIONS SPEAK LOUDER THAN ANALYSIS</Text>
+          </>
+        }
+      />
+    </>
   );
 }
 
@@ -96,9 +142,38 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: Colors.bg,
   },
+  centered: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   content: {
     padding: 16,
     paddingBottom: 40,
+  },
+  loadingText: {
+    color: Colors.textMuted,
+    fontSize: 10,
+    fontWeight: '700' as const,
+    letterSpacing: 2,
+    marginTop: 12,
+  },
+  emptyState: {
+    padding: 40,
+    alignItems: 'center',
+  },
+  emptyTitle: {
+    color: Colors.textMuted,
+    fontSize: 14,
+    fontWeight: '900' as const,
+    letterSpacing: 2,
+    marginBottom: 8,
+  },
+  emptyText: {
+    color: Colors.textMuted,
+    fontSize: 12,
+    fontWeight: '500' as const,
+    textAlign: 'center',
+    lineHeight: 18,
   },
   rankingInfo: {
     backgroundColor: 'rgba(170,255,0,0.04)',

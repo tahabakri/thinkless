@@ -19,7 +19,6 @@ export default function PaywallScreen() {
   const { upgradeToPro } = useApp();
 
   const handlePurchase = async (plan: string) => {
-    console.log('Purchase initiated:', plan);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     await upgradeToPro();
     router.back();
@@ -136,7 +135,7 @@ export default function PaywallScreen() {
 
         <TouchableOpacity
           style={styles.restoreButton}
-          onPress={() => console.log('Restore purchases')}
+          onPress={() => {}}
           activeOpacity={0.7}
         >
           <Text style={styles.restoreText}>RESTORE PURCHASES</Text>

@@ -11,43 +11,36 @@ import {
 } from 'react-native';
 import { Stack } from 'expo-router';
 import { useApp } from '@/providers/AppProvider';
+import { analyzeEcho, EchoAnalysisResult } from '@/services/ai';
 import Colors from '@/constants/colors';
 import { getScoreColor } from '@/utils/helpers';
 
-interface AnalysisResult {
-  loopScore: number;
-  patterns: string[];
-  topLoop: string;
-  bluntVerdict: string;
-  actionPrompt: string;
-}
-
 export default function EchoDetectorScreen() {
-  const { echoReport, drains } = useApp();
+  const { echoReport, drains, personality } = useApp();
   const [input, setInput] = useState<string>('');
   const [analyzing, setAnalyzing] = useState<boolean>(false);
   const [analyzed, setAnalyzed] = useState<boolean>(false);
-  const [result, setResult] = useState<AnalysisResult | null>(null);
+  const [result, setResult] = useState<EchoAnalysisResult | null>(null);
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
   const analyze = async () => {
     if (!input.trim()) return;
     setAnalyzing(true);
 
-    await new Promise((resolve) => setTimeout(resolve, 1500));
+    try {
+      const recentDrainTexts = drains.slice(0, 5).map((d) => d.text);
+      const analysisResult = await analyzeEcho(input, recentDrainTexts, personality);
+      setResult(analysisResult);
+    } catch {
+      setResult({
+        loopScore: 50,
+        patterns: ['Analysis Paralysis'],
+        topLoop: 'Unable to analyze — but the fact that you submitted this says something.',
+        bluntVerdict: "Even Socra needs a moment. But you don't. Make a decision.",
+        actionPrompt: "Write one sentence saying what you'll do by end of day.",
+      });
+    }
 
-    const mockResult: AnalysisResult = {
-      loopScore: Math.floor(Math.random() * 40) + 45,
-      patterns: ['Circular Reasoning', 'Analysis Paralysis', 'Catastrophizing', 'False Dichotomy'].slice(
-        0,
-        Math.floor(Math.random() * 2) + 2
-      ),
-      topLoop: 'Repeated avoidance disguised as planning',
-      bluntVerdict: "You're not thinking — you're hiding inside the thought.",
-      actionPrompt: "Write one sentence saying what you'll do by 5pm today.",
-    };
-
-    setResult(mockResult);
     setAnalyzing(false);
     setAnalyzed(true);
 
@@ -134,12 +127,14 @@ export default function EchoDetectorScreen() {
           </View>
           <View style={styles.statRow}>
             <View style={styles.statBox}>
-              <Text style={[styles.statVal, { color: Colors.danger }]}>{echoReport.loopScore || 67}</Text>
+              <Text style={[styles.statVal, { color: echoReport.loopScore > 40 ? Colors.danger : Colors.accent }]}>
+                {echoReport.loopScore || 0}
+              </Text>
               <Text style={styles.statKey}>Avg Loop Score</Text>
             </View>
             <View style={styles.statBox}>
-              <Text style={[styles.statVal, { color: Colors.accent }]}>↓12</Text>
-              <Text style={styles.statKey}>vs Last Week</Text>
+              <Text style={[styles.statVal, { color: Colors.accent }]}>{drains.length}</Text>
+              <Text style={styles.statKey}>Total Drains</Text>
             </View>
           </View>
         </>

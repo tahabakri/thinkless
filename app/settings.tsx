@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
   View,
   Text,
@@ -6,6 +6,7 @@ import {
   ScrollView,
   TouchableOpacity,
   Switch,
+  Alert,
 } from 'react-native';
 import { useRouter, Stack } from 'expo-router';
 import { Bell, Clock, Crown, Trash2, Info } from 'lucide-react-native';
@@ -14,16 +15,35 @@ import Colors from '@/constants/colors';
 
 export default function SettingsScreen() {
   const router = useRouter();
-  const { isPro } = useApp();
-  const [notifications, setNotifications] = useState<boolean>(true);
-  const [socraticSlap, setSocraticSlap] = useState<boolean>(true);
-  const [frequency, setFrequency] = useState<string>('daily');
+  const {
+    isPro,
+    notificationEnabled,
+    slapEnabled,
+    slapFrequency,
+    updateNotificationSettings,
+    clearAllData,
+  } = useApp();
 
   const frequencies = [
-    { id: 'aggressive', label: 'AGGRESSIVE', desc: 'Every 2 hours' },
-    { id: 'daily', label: 'DAILY', desc: 'Once per day' },
-    { id: 'gentle', label: 'GENTLE', desc: 'Every 3 days' },
+    { id: 'aggressive' as const, label: 'AGGRESSIVE', desc: 'Every 2 hours' },
+    { id: 'daily' as const, label: 'DAILY', desc: 'Once per day' },
+    { id: 'gentle' as const, label: 'GENTLE', desc: 'Every 3 days' },
   ];
+
+  const handleClearData = () => {
+    Alert.alert(
+      'CLEAR ALL DATA',
+      'This will permanently delete all your drains, tribunals, commitments, and chat history. Your escape score will reset to 0. This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete Everything',
+          style: 'destructive',
+          onPress: () => clearAllData(),
+        },
+      ]
+    );
+  };
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
@@ -54,10 +74,10 @@ export default function SettingsScreen() {
           <Bell color={Colors.textSecondary} size={16} />
           <Text style={styles.settingLabel}>Push Notifications</Text>
           <Switch
-            value={notifications}
-            onValueChange={setNotifications}
+            value={notificationEnabled}
+            onValueChange={(val) => updateNotificationSettings({ notificationEnabled: val })}
             trackColor={{ false: Colors.bgElevated, true: Colors.accentDim }}
-            thumbColor={notifications ? Colors.accent : Colors.textMuted}
+            thumbColor={notificationEnabled ? Colors.accent : Colors.textMuted}
           />
         </View>
         <View style={styles.divider} />
@@ -65,15 +85,15 @@ export default function SettingsScreen() {
           <Clock color={Colors.textSecondary} size={16} />
           <Text style={styles.settingLabel}>Socratic Slap</Text>
           <Switch
-            value={socraticSlap}
-            onValueChange={setSocraticSlap}
+            value={slapEnabled}
+            onValueChange={(val) => updateNotificationSettings({ slapEnabled: val })}
             trackColor={{ false: Colors.bgElevated, true: Colors.accentDim }}
-            thumbColor={socraticSlap ? Colors.accent : Colors.textMuted}
+            thumbColor={slapEnabled ? Colors.accent : Colors.textMuted}
           />
         </View>
       </View>
 
-      {socraticSlap && (
+      {slapEnabled && (
         <>
           <View style={styles.sectionHeader}>
             <View style={styles.sectionLine} />
@@ -87,15 +107,15 @@ export default function SettingsScreen() {
                 key={f.id}
                 style={[
                   styles.frequencyCard,
-                  frequency === f.id && styles.frequencyCardActive,
+                  slapFrequency === f.id && styles.frequencyCardActive,
                 ]}
-                onPress={() => setFrequency(f.id)}
+                onPress={() => updateNotificationSettings({ slapFrequency: f.id })}
                 activeOpacity={0.7}
               >
                 <Text
                   style={[
                     styles.frequencyLabel,
-                    frequency === f.id && styles.frequencyLabelActive,
+                    slapFrequency === f.id && styles.frequencyLabelActive,
                   ]}
                 >
                   {f.label}
@@ -125,7 +145,7 @@ export default function SettingsScreen() {
       </View>
 
       <View style={styles.dangerSection}>
-        <TouchableOpacity style={styles.dangerButton} activeOpacity={0.7}>
+        <TouchableOpacity style={styles.dangerButton} onPress={handleClearData} activeOpacity={0.7}>
           <Trash2 color={Colors.danger} size={16} />
           <Text style={styles.dangerText}>CLEAR ALL DATA</Text>
         </TouchableOpacity>

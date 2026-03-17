@@ -4,12 +4,30 @@ import * as SplashScreen from "expo-splash-screen";
 import React, { useEffect } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { StatusBar } from "expo-status-bar";
-import { AppProvider } from "@/providers/AppProvider";
+import { AppProvider, useApp } from "@/providers/AppProvider";
+import ErrorBoundary from "@/components/ErrorBoundary";
+import OfflineBanner from "@/components/OfflineBanner";
+import { registerForPushNotifications, scheduleDailyCheckinReminder, scheduleWeeklyReportReminder } from "@/services/notifications";
 import Colors from "@/constants/colors";
 
 SplashScreen.preventAutoHideAsync();
 
 const queryClient = new QueryClient();
+
+function NotificationInitializer() {
+  const { deviceId, notificationEnabled } = useApp();
+
+  useEffect(() => {
+    if (!deviceId || !notificationEnabled) return;
+    (async () => {
+      await registerForPushNotifications(deviceId);
+      await scheduleDailyCheckinReminder();
+      await scheduleWeeklyReportReminder();
+    })();
+  }, [deviceId, notificationEnabled]);
+
+  return null;
+}
 
 function RootLayoutNav() {
   return (
@@ -44,13 +62,17 @@ export default function RootLayout() {
   }, []);
 
   return (
-    <QueryClientProvider client={queryClient}>
-      <GestureHandlerRootView style={{ flex: 1 }}>
-        <AppProvider>
-          <StatusBar style="light" />
-          <RootLayoutNav />
-        </AppProvider>
-      </GestureHandlerRootView>
-    </QueryClientProvider>
+    <ErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <GestureHandlerRootView style={{ flex: 1 }}>
+          <AppProvider>
+            <StatusBar style="light" />
+            <OfflineBanner />
+            <NotificationInitializer />
+            <RootLayoutNav />
+          </AppProvider>
+        </GestureHandlerRootView>
+      </QueryClientProvider>
+    </ErrorBoundary>
   );
 }

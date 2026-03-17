@@ -9,6 +9,7 @@ import {
   Animated,
   KeyboardAvoidingView,
   Platform,
+  ActivityIndicator,
 } from 'react-native';
 import { Lock, Check, Plus, ShieldAlert, Camera, Mic } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
@@ -17,12 +18,20 @@ import Colors from '@/constants/colors';
 import { formatTimestamp, formatDeadline } from '@/utils/helpers';
 
 export default function VaultScreen() {
-  const { commitments, addCommitment, submitProof } = useApp();
+  const { commitments, addCommitment, submitProof, isLoading } = useApp();
   const [showAdd, setShowAdd] = useState<boolean>(false);
   const [newDecision, setNewDecision] = useState<string>('');
   const [proofInputs, setProofInputs] = useState<Record<string, string>>({});
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const addAnim = useRef(new Animated.Value(0)).current;
+
+  if (isLoading) {
+    return (
+      <View style={{ flex: 1, backgroundColor: Colors.bg, justifyContent: 'center', alignItems: 'center' }}>
+        <ActivityIndicator color={Colors.accent} size="large" />
+      </View>
+    );
+  }
 
   const toggleAdd = () => {
     const toValue = showAdd ? 0 : 1;

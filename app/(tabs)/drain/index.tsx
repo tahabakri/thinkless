@@ -29,10 +29,18 @@ const QUICK_CHIPS = [
 
 export default function DrainScreen() {
   const router = useRouter();
-  const { drains, addDrain, isDraining, canDrain, isPro, weeklyDrainCount, addCommitment } = useApp();
+  const { drains, addDrain, isDraining, canDrain, isPro, weeklyDrainCount, addCommitment, isLoading } = useApp();
   const [text, setText] = useState<string>('');
   const [showResponse, setShowResponse] = useState<string | null>(null);
   const responseAnim = useRef(new Animated.Value(0)).current;
+
+  if (isLoading) {
+    return (
+      <View style={{ flex: 1, backgroundColor: Colors.bg, justifyContent: 'center', alignItems: 'center' }}>
+        <ActivityIndicator color={Colors.accent} size="large" />
+      </View>
+    );
+  }
 
   const handleDrain = async () => {
     if (!text.trim()) return;

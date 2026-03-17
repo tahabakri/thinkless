@@ -35,7 +35,7 @@ const PERSONALITIES: PersonalityOption[] = [
 export default function ChatScreen() {
   const {
     chatMessages, sendChat, isChatPending, clearChat,
-    personality, setPersonalityMode, isPro,
+    personality, setPersonalityMode, isPro, isLoading,
   } = useApp();
   const [text, setText] = useState<string>('');
   const [showPersonality, setShowPersonality] = useState<boolean>(false);
@@ -46,6 +46,14 @@ export default function ChatScreen() {
       setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
     }
   }, [chatMessages.length]);
+
+  if (isLoading) {
+    return (
+      <View style={{ flex: 1, backgroundColor: Colors.bg, justifyContent: 'center', alignItems: 'center' }}>
+        <ActivityIndicator color={Colors.accent} size="large" />
+      </View>
+    );
+  }
 
   const handleSend = async () => {
     if (!text.trim() || isChatPending) return;

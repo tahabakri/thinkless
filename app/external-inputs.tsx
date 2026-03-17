@@ -1,16 +1,17 @@
-import React, { useState } from 'react';
+import React, { useState, memo, useMemo } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
+  FlatList,
   TextInput,
   TouchableOpacity,
   KeyboardAvoidingView,
   Platform,
+  ActivityIndicator,
 } from 'react-native';
 import { Stack } from 'expo-router';
-import { BookOpen, MessageCircle, FileText, Headphones, Plus } from 'lucide-react-native';
+import { Plus } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { useApp } from '@/providers/AppProvider';
 import Colors from '@/constants/colors';
@@ -26,11 +27,27 @@ const INPUT_TYPES: { type: ExternalInput['type']; label: string; icon: string }[
   { type: 'other', label: 'OTHER', icon: '📌' },
 ];
 
+const HistoryItem = memo(function HistoryItem({ input }: { input: ExternalInput }) {
+  const typeInfo = INPUT_TYPES.find((t) => t.type === input.type);
+  return (
+    <View style={styles.historyItem}>
+      <View style={styles.historyHeader}>
+        <Text style={styles.historyIcon}>{typeInfo?.icon || '📌'}</Text>
+        <Text style={styles.historyType}>{typeInfo?.label || 'OTHER'}</Text>
+        <Text style={styles.historyTime}>{formatTimestamp(input.timestamp)}</Text>
+      </View>
+      <Text style={styles.historyDesc}>{input.description}</Text>
+    </View>
+  );
+});
+
 export default function ExternalInputsScreen() {
-  const { externalInputs, addExternalInput, todayExternalInputs } = useApp();
+  const { externalInputs, addExternalInput, todayExternalInputs, isLoading } = useApp();
   const [selectedType, setSelectedType] = useState<ExternalInput['type']>('book');
   const [description, setDescription] = useState<string>('');
   const [showAdd, setShowAdd] = useState<boolean>(false);
+
+  const historyData = useMemo(() => externalInputs.slice(0, 20), [externalInputs]);
 
   const handleAdd = async () => {
     if (!description.trim()) return;
@@ -45,140 +62,141 @@ export default function ExternalInputsScreen() {
     (e) => e.timestamp > Date.now() - 7 * 86400000
   ).length;
 
+  if (isLoading) {
+    return (
+      <View style={[styles.container, styles.centered]}>
+        <Stack.Screen options={{ title: 'EXTERNAL INPUTS' }} />
+        <ActivityIndicator color={Colors.accent} size="large" />
+      </View>
+    );
+  }
+
   return (
     <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={100}
     >
-      <ScrollView contentContainerStyle={styles.content}>
-        <Stack.Screen options={{ title: 'EXTERNAL INPUTS' }} />
-
-        <View style={styles.headerCard}>
-          <Text style={styles.headerTitle}>INPUT TRACKER</Text>
-          <Text style={styles.headerSub}>
-            Log what you consumed vs how much you ruminated.{'\n'}
-            External input breaks the echo chamber.
-          </Text>
-        </View>
-
-        <View style={styles.statsRow}>
-          <View style={styles.statBox}>
-            <Text style={[styles.statVal, { color: Colors.accent }]}>{todayCount}</Text>
-            <Text style={styles.statKey}>Today</Text>
-          </View>
-          <View style={styles.statBox}>
-            <Text style={styles.statVal}>{weekCount}</Text>
-            <Text style={styles.statKey}>This Week</Text>
-          </View>
-          <View style={styles.statBox}>
-            <Text style={styles.statVal}>{externalInputs.length}</Text>
-            <Text style={styles.statKey}>All Time</Text>
-          </View>
-        </View>
-
-        {!showAdd ? (
-          <TouchableOpacity
-            style={styles.addButton}
-            onPress={() => {
-              setShowAdd(true);
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            }}
-            activeOpacity={0.7}
-          >
-            <Plus color={Colors.bg} size={18} />
-            <Text style={styles.addButtonText}>LOG EXTERNAL INPUT</Text>
-          </TouchableOpacity>
-        ) : (
-          <View style={styles.addSection}>
-            <View style={styles.sectionHeader}>
-              <View style={styles.sectionLine} />
-              <Text style={styles.sectionLabel}>WHAT DID YOU CONSUME?</Text>
-              <View style={styles.sectionLine} />
-            </View>
-
-            <View style={styles.typeGrid}>
-              {INPUT_TYPES.map((t) => (
-                <TouchableOpacity
-                  key={t.type}
-                  style={[
-                    styles.typeCard,
-                    selectedType === t.type && styles.typeCardActive,
-                  ]}
-                  onPress={() => {
-                    setSelectedType(t.type);
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  }}
-                  activeOpacity={0.7}
-                >
-                  <Text style={styles.typeIcon}>{t.icon}</Text>
-                  <Text
-                    style={[
-                      styles.typeLabel,
-                      selectedType === t.type && styles.typeLabelActive,
-                    ]}
-                  >
-                    {t.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-
-            <TextInput
-              style={styles.descriptionInput}
-              placeholder="What was it about? One sentence."
-              placeholderTextColor={Colors.textMuted}
-              value={description}
-              onChangeText={setDescription}
-              multiline
-              textAlignVertical="top"
-              testID="input-description"
-            />
-
-            <View style={styles.addActions}>
-              <TouchableOpacity
-                style={[styles.submitButton, !description.trim() && styles.buttonDisabled]}
-                onPress={handleAdd}
-                disabled={!description.trim()}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.submitButtonText}>LOG IT →</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.cancelButton}
-                onPress={() => setShowAdd(false)}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.cancelButtonText}>CANCEL</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        )}
-
-        {externalInputs.length > 0 && (
+      <Stack.Screen options={{ title: 'EXTERNAL INPUTS' }} />
+      <FlatList
+        contentContainerStyle={styles.content}
+        data={historyData}
+        keyExtractor={(item) => item.id}
+        renderItem={({ item }) => <HistoryItem input={item} />}
+        ListHeaderComponent={
           <>
-            <View style={styles.sectionHeader}>
-              <View style={styles.sectionLine} />
-              <Text style={styles.sectionLabel}>HISTORY</Text>
-              <View style={styles.sectionLine} />
+            <View style={styles.headerCard}>
+              <Text style={styles.headerTitle}>INPUT TRACKER</Text>
+              <Text style={styles.headerSub}>
+                Log what you consumed vs how much you ruminated.{'\n'}
+                External input breaks the echo chamber.
+              </Text>
             </View>
 
-            {externalInputs.slice(0, 20).map((input) => {
-              const typeInfo = INPUT_TYPES.find((t) => t.type === input.type);
-              return (
-                <View key={input.id} style={styles.historyItem}>
-                  <View style={styles.historyHeader}>
-                    <Text style={styles.historyIcon}>{typeInfo?.icon || '📌'}</Text>
-                    <Text style={styles.historyType}>{typeInfo?.label || 'OTHER'}</Text>
-                    <Text style={styles.historyTime}>{formatTimestamp(input.timestamp)}</Text>
-                  </View>
-                  <Text style={styles.historyDesc}>{input.description}</Text>
+            <View style={styles.statsRow}>
+              <View style={styles.statBox}>
+                <Text style={[styles.statVal, { color: Colors.accent }]}>{todayCount}</Text>
+                <Text style={styles.statKey}>Today</Text>
+              </View>
+              <View style={styles.statBox}>
+                <Text style={styles.statVal}>{weekCount}</Text>
+                <Text style={styles.statKey}>This Week</Text>
+              </View>
+              <View style={styles.statBox}>
+                <Text style={styles.statVal}>{externalInputs.length}</Text>
+                <Text style={styles.statKey}>All Time</Text>
+              </View>
+            </View>
+
+            {!showAdd ? (
+              <TouchableOpacity
+                style={styles.addButton}
+                onPress={() => {
+                  setShowAdd(true);
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                }}
+                activeOpacity={0.7}
+              >
+                <Plus color={Colors.bg} size={18} />
+                <Text style={styles.addButtonText}>LOG EXTERNAL INPUT</Text>
+              </TouchableOpacity>
+            ) : (
+              <View style={styles.addSection}>
+                <View style={styles.sectionHeader}>
+                  <View style={styles.sectionLine} />
+                  <Text style={styles.sectionLabel}>WHAT DID YOU CONSUME?</Text>
+                  <View style={styles.sectionLine} />
                 </View>
-              );
-            })}
+
+                <View style={styles.typeGrid}>
+                  {INPUT_TYPES.map((t) => (
+                    <TouchableOpacity
+                      key={t.type}
+                      style={[
+                        styles.typeCard,
+                        selectedType === t.type && styles.typeCardActive,
+                      ]}
+                      onPress={() => {
+                        setSelectedType(t.type);
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={styles.typeIcon}>{t.icon}</Text>
+                      <Text
+                        style={[
+                          styles.typeLabel,
+                          selectedType === t.type && styles.typeLabelActive,
+                        ]}
+                      >
+                        {t.label}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+
+                <TextInput
+                  style={styles.descriptionInput}
+                  placeholder="What was it about? One sentence."
+                  placeholderTextColor={Colors.textMuted}
+                  value={description}
+                  onChangeText={setDescription}
+                  multiline
+                  textAlignVertical="top"
+                  testID="input-description"
+                />
+
+                <View style={styles.addActions}>
+                  <TouchableOpacity
+                    style={[styles.submitButton, !description.trim() && styles.buttonDisabled]}
+                    onPress={handleAdd}
+                    disabled={!description.trim()}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.submitButtonText}>LOG IT →</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.cancelButton}
+                    onPress={() => setShowAdd(false)}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.cancelButtonText}>CANCEL</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+
+            {historyData.length > 0 && (
+              <View style={styles.sectionHeader}>
+                <View style={styles.sectionLine} />
+                <Text style={styles.sectionLabel}>HISTORY</Text>
+                <View style={styles.sectionLine} />
+              </View>
+            )}
           </>
-        )}
-      </ScrollView>
+        }
+        keyboardShouldPersistTaps="handled"
+      />
     </KeyboardAvoidingView>
   );
 }
@@ -187,6 +205,10 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: Colors.bg,
+  },
+  centered: {
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   content: {
     padding: 20,

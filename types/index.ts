@@ -47,6 +47,8 @@ export interface LeaderboardEntry {
   actionsTaken: number;
   avgResponseTime: string;
   rank: number;
+  streak?: number;
+  isYou?: boolean;
 }
 
 export interface EchoReport {

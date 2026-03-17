@@ -1,160 +1,190 @@
-import React from 'react';
+import React, { memo, useMemo } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
+  FlatList,
+  ActivityIndicator,
 } from 'react-native';
 import { Stack } from 'expo-router';
 import { TrendingDown, TrendingUp } from 'lucide-react-native';
 import { useApp } from '@/providers/AppProvider';
 import Colors from '@/constants/colors';
+import { ThoughtDrain } from '@/types';
 import { formatTimestamp } from '@/utils/helpers';
 
-export default function LoopHistoryScreen() {
-  const { drains, stats } = useApp();
-
-  const avgScore = drains.length > 0
-    ? Math.round(drains.reduce((sum, d) => sum + d.loopScore, 0) / drains.length)
-    : 0;
-
-  const recentDrains = drains.slice(0, 20);
-
-  const trend = recentDrains.length >= 2
-    ? recentDrains[0].loopScore - recentDrains[recentDrains.length - 1].loopScore
-    : 0;
+const TimelineItem = memo(function TimelineItem({
+  drain,
+  prevScore,
+  isLast,
+}: {
+  drain: ThoughtDrain;
+  prevScore: number;
+  isLast: boolean;
+}) {
+  const change = drain.loopScore - prevScore;
+  const barWidth = Math.min(100, drain.loopScore);
+  const scoreColor =
+    drain.loopScore > 60
+      ? Colors.danger
+      : drain.loopScore > 40
+      ? Colors.warning
+      : Colors.accent;
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <Stack.Screen options={{ title: 'LOOP HISTORY' }} />
-
-      <View style={styles.overviewRow}>
-        <View style={styles.overviewCard}>
-          <Text style={[styles.overviewVal, { color: avgScore > 50 ? Colors.danger : Colors.accent }]}>
-            {avgScore}
-          </Text>
-          <Text style={styles.overviewKey}>AVG LOOP SCORE</Text>
-        </View>
-        <View style={styles.overviewCard}>
-          <View style={styles.trendRow}>
-            {trend <= 0 ? (
-              <TrendingDown color={Colors.accent} size={16} />
-            ) : (
-              <TrendingUp color={Colors.danger} size={16} />
-            )}
-            <Text style={[styles.overviewVal, { color: trend <= 0 ? Colors.accent : Colors.danger }]}>
-              {trend <= 0 ? trend : `+${trend}`}
-            </Text>
-          </View>
-          <Text style={styles.overviewKey}>TREND</Text>
-        </View>
-        <View style={styles.overviewCard}>
-          <Text style={styles.overviewVal}>{drains.length}</Text>
-          <Text style={styles.overviewKey}>TOTAL DRAINS</Text>
-        </View>
+    <View style={styles.timelineItem}>
+      <View style={styles.timelineDot}>
+        <View style={[styles.dot, { backgroundColor: scoreColor }]} />
+        {!isLast && <View style={styles.timelineLine} />}
       </View>
 
-      {recentDrains.length === 0 ? (
-        <View style={styles.emptyState}>
-          <Text style={styles.emptyTitle}>NO HISTORY YET</Text>
-          <Text style={styles.emptySub}>
-            Complete some Thought Drains to see your loop timeline.
-          </Text>
-        </View>
-      ) : (
-        <>
-          <View style={styles.sectionHeader}>
-            <View style={styles.sectionLine} />
-            <Text style={styles.sectionLabel}>TIMELINE</Text>
-            <View style={styles.sectionLine} />
+      <View style={styles.timelineContent}>
+        <View style={styles.timelineHeader}>
+          <Text style={styles.timelineTime}>{formatTimestamp(drain.timestamp)}</Text>
+          <View style={styles.scoreAndChange}>
+            <Text style={[styles.timelineScore, { color: scoreColor }]}>
+              {drain.loopScore}
+            </Text>
+            {!isLast && (
+              <Text
+                style={[
+                  styles.changeText,
+                  { color: change <= 0 ? Colors.accent : Colors.danger },
+                ]}
+              >
+                {change <= 0 ? `↓${Math.abs(change)}` : `↑${change}`}
+              </Text>
+            )}
           </View>
+        </View>
 
-          {recentDrains.map((drain, index) => {
-            const prevScore = index < recentDrains.length - 1
-              ? recentDrains[index + 1].loopScore
-              : drain.loopScore;
-            const change = drain.loopScore - prevScore;
-            const barWidth = Math.min(100, drain.loopScore);
+        <View style={styles.loopBar}>
+          <View
+            style={[
+              styles.loopBarFill,
+              { width: `${barWidth}%`, backgroundColor: scoreColor },
+            ]}
+          />
+        </View>
 
-            return (
-              <View key={drain.id} style={styles.timelineItem}>
-                <View style={styles.timelineDot}>
-                  <View
-                    style={[
-                      styles.dot,
-                      {
-                        backgroundColor: drain.loopScore > 60
-                          ? Colors.danger
-                          : drain.loopScore > 40
-                          ? Colors.warning
-                          : Colors.accent,
-                      },
-                    ]}
-                  />
-                  {index < recentDrains.length - 1 && <View style={styles.timelineLine} />}
-                </View>
+        <Text style={styles.timelineText} numberOfLines={2}>
+          {drain.text}
+        </Text>
 
-                <View style={styles.timelineContent}>
-                  <View style={styles.timelineHeader}>
-                    <Text style={styles.timelineTime}>{formatTimestamp(drain.timestamp)}</Text>
-                    <View style={styles.scoreAndChange}>
-                      <Text
-                        style={[
-                          styles.timelineScore,
-                          {
-                            color: drain.loopScore > 60
-                              ? Colors.danger
-                              : drain.loopScore > 40
-                              ? Colors.warning
-                              : Colors.accent,
-                          },
-                        ]}
-                      >
-                        {drain.loopScore}
-                      </Text>
-                      {index < recentDrains.length - 1 && (
-                        <Text
-                          style={[
-                            styles.changeText,
-                            { color: change <= 0 ? Colors.accent : Colors.danger },
-                          ]}
-                        >
-                          {change <= 0 ? `↓${Math.abs(change)}` : `↑${change}`}
-                        </Text>
-                      )}
-                    </View>
-                  </View>
+        {drain.resolved && (
+          <Text style={styles.resolvedBadge}>✓ RESOLVED</Text>
+        )}
+      </View>
+    </View>
+  );
+});
 
-                  <View style={styles.loopBar}>
-                    <View
-                      style={[
-                        styles.loopBarFill,
-                        {
-                          width: `${barWidth}%`,
-                          backgroundColor: drain.loopScore > 60
-                            ? Colors.danger
-                            : drain.loopScore > 40
-                            ? Colors.warning
-                            : Colors.accent,
-                        },
-                      ]}
-                    />
-                  </View>
+export default function LoopHistoryScreen() {
+  const { drains, isLoading } = useApp();
 
-                  <Text style={styles.timelineText} numberOfLines={2}>
-                    {drain.text}
-                  </Text>
+  const recentDrains = useMemo(() => drains.slice(0, 20), [drains]);
 
-                  {drain.resolved && (
-                    <Text style={styles.resolvedBadge}>✓ RESOLVED</Text>
-                  )}
-                </View>
+  const avgScore = useMemo(
+    () =>
+      drains.length > 0
+        ? Math.round(drains.reduce((sum, d) => sum + d.loopScore, 0) / drains.length)
+        : 0,
+    [drains]
+  );
+
+  const trend = useMemo(
+    () =>
+      recentDrains.length >= 2
+        ? recentDrains[0].loopScore - recentDrains[recentDrains.length - 1].loopScore
+        : 0,
+    [recentDrains]
+  );
+
+  if (isLoading) {
+    return (
+      <View style={[styles.container, styles.centered]}>
+        <Stack.Screen options={{ title: 'LOOP HISTORY' }} />
+        <ActivityIndicator color={Colors.accent} size="large" />
+      </View>
+    );
+  }
+
+  return (
+    <>
+      <Stack.Screen options={{ title: 'LOOP HISTORY' }} />
+      <FlatList
+        style={styles.container}
+        contentContainerStyle={styles.content}
+        data={recentDrains}
+        keyExtractor={(item) => item.id}
+        renderItem={({ item, index }) => (
+          <TimelineItem
+            drain={item}
+            prevScore={
+              index < recentDrains.length - 1
+                ? recentDrains[index + 1].loopScore
+                : item.loopScore
+            }
+            isLast={index === recentDrains.length - 1}
+          />
+        )}
+        ListHeaderComponent={
+          <>
+            <View style={styles.overviewRow}>
+              <View style={styles.overviewCard}>
+                <Text
+                  style={[
+                    styles.overviewVal,
+                    { color: avgScore > 50 ? Colors.danger : Colors.accent },
+                  ]}
+                >
+                  {avgScore}
+                </Text>
+                <Text style={styles.overviewKey}>AVG LOOP SCORE</Text>
               </View>
-            );
-          })}
-        </>
-      )}
-    </ScrollView>
+              <View style={styles.overviewCard}>
+                <View style={styles.trendRow}>
+                  {trend <= 0 ? (
+                    <TrendingDown color={Colors.accent} size={16} />
+                  ) : (
+                    <TrendingUp color={Colors.danger} size={16} />
+                  )}
+                  <Text
+                    style={[
+                      styles.overviewVal,
+                      { color: trend <= 0 ? Colors.accent : Colors.danger },
+                    ]}
+                  >
+                    {trend <= 0 ? trend : `+${trend}`}
+                  </Text>
+                </View>
+                <Text style={styles.overviewKey}>TREND</Text>
+              </View>
+              <View style={styles.overviewCard}>
+                <Text style={styles.overviewVal}>{drains.length}</Text>
+                <Text style={styles.overviewKey}>TOTAL DRAINS</Text>
+              </View>
+            </View>
+
+            {recentDrains.length > 0 && (
+              <View style={styles.sectionHeader}>
+                <View style={styles.sectionLine} />
+                <Text style={styles.sectionLabel}>TIMELINE</Text>
+                <View style={styles.sectionLine} />
+              </View>
+            )}
+          </>
+        }
+        ListEmptyComponent={
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyTitle}>NO HISTORY YET</Text>
+            <Text style={styles.emptySub}>
+              Complete some Thought Drains to see your loop timeline.
+            </Text>
+          </View>
+        }
+      />
+    </>
   );
 }
 
@@ -162,6 +192,10 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: Colors.bg,
+  },
+  centered: {
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   content: {
     padding: 20,

@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import createContextHook from '@nkzw/create-context-hook';
 import {
   ThoughtDrain,
@@ -17,72 +16,36 @@ import {
   GraveyardEntry,
   SocraPersonality,
 } from '@/types';
-import {
-  SOCRA_QUESTIONS,
-  SOCRA_VERDICTS,
-  SOCRA_CHAT_RESPONSES,
-  PATTERN_DNA_STYLES,
-  WEEKLY_VERDICTS,
-  getRandomItem,
-  generateLoopScore,
-} from '@/mocks/socra';
-import { generateId } from '@/utils/helpers';
-
-const STORAGE_KEYS = {
-  drains: 'thinkless_drains',
-  tribunals: 'thinkless_tribunals',
-  commitments: 'thinkless_commitments',
-  chatMessages: 'thinkless_chat',
-  stats: 'thinkless_stats',
-  isPro: 'thinkless_is_pro',
-  checkIns: 'thinkless_checkins',
-  spiralTimers: 'thinkless_spiral_timers',
-  externalInputs: 'thinkless_external_inputs',
-  graveyard: 'thinkless_graveyard',
-  personality: 'thinkless_personality',
-  patternDNA: 'thinkless_pattern_dna',
-  weeklyReports: 'thinkless_weekly_reports',
-};
+import { getDeviceId, registerDevice } from '@/lib/device';
+import * as ai from '@/services/ai';
+import * as drainsService from '@/services/drains';
+import * as tribunalsService from '@/services/tribunals';
+import * as commitmentsService from '@/services/commitments';
+import * as chatService from '@/services/chat';
+import * as checkinsService from '@/services/checkins';
+import * as spiralService from '@/services/spiral-timers';
+import * as inputsService from '@/services/external-inputs';
+import * as graveyardService from '@/services/graveyard';
+import * as statsService from '@/services/stats';
 
 const DEFAULT_STATS: UserStats = {
-  chamberScore: 42,
-  totalDrains: 3,
-  totalTribunals: 1,
-  commitmentsKept: 2,
-  commitmentsBroken: 1,
-  currentStreak: 2,
-  longestStreak: 5,
-  weeklyScores: [
-    { date: 'Mon', score: 35, thoughtToAction: 0.3, loopsDetected: 4, commitmentsKept: 1, externalInputs: 2 },
-    { date: 'Tue', score: 38, thoughtToAction: 0.35, loopsDetected: 3, commitmentsKept: 1, externalInputs: 3 },
-    { date: 'Wed', score: 42, thoughtToAction: 0.4, loopsDetected: 3, commitmentsKept: 2, externalInputs: 2 },
-    { date: 'Thu', score: 45, thoughtToAction: 0.42, loopsDetected: 2, commitmentsKept: 2, externalInputs: 4 },
-    { date: 'Fri', score: 48, thoughtToAction: 0.45, loopsDetected: 2, commitmentsKept: 2, externalInputs: 3 },
-    { date: 'Sat', score: 44, thoughtToAction: 0.38, loopsDetected: 3, commitmentsKept: 2, externalInputs: 1 },
-    { date: 'Sun', score: 42, thoughtToAction: 0.4, loopsDetected: 3, commitmentsKept: 2, externalInputs: 2 },
-  ],
+  chamberScore: 0,
+  totalDrains: 0,
+  totalTribunals: 0,
+  commitmentsKept: 0,
+  commitmentsBroken: 0,
+  currentStreak: 0,
+  longestStreak: 0,
+  weeklyScores: [],
 };
-
-async function loadFromStorage<T>(key: string, fallback: T): Promise<T> {
-  try {
-    const stored = await AsyncStorage.getItem(key);
-    return stored ? JSON.parse(stored) : fallback;
-  } catch {
-    console.log('Failed to load from storage:', key);
-    return fallback;
-  }
-}
-
-async function saveToStorage<T>(key: string, data: T): Promise<void> {
-  try {
-    await AsyncStorage.setItem(key, JSON.stringify(data));
-  } catch {
-    console.log('Failed to save to storage:', key);
-  }
-}
 
 export const [AppProvider, useApp] = createContextHook(() => {
   const queryClient = useQueryClient();
+
+  // Device ID
+  const [deviceId, setDeviceId] = useState<string | null>(null);
+
+  // Core data
   const [drains, setDrains] = useState<ThoughtDrain[]>([]);
   const [tribunals, setTribunals] = useState<TribunalSession[]>([]);
   const [commitments, setCommitments] = useState<Commitment[]>([]);
@@ -96,32 +59,55 @@ export const [AppProvider, useApp] = createContextHook(() => {
   const [personality, setPersonality] = useState<SocraPersonality>('default');
   const [patternDNA, setPatternDNA] = useState<PatternDNA | null>(null);
   const [weeklyReports, setWeeklyReports] = useState<WeeklyReport[]>([]);
+  const [notificationEnabled, setNotificationEnabled] = useState(true);
+  const [slapEnabled, setSlapEnabled] = useState(true);
+  const [slapFrequency, setSlapFrequency] = useState<'aggressive' | 'daily' | 'gentle'>('daily');
 
+  // Initialize device
+  useEffect(() => {
+    (async () => {
+      const id = await getDeviceId();
+      await registerDevice(id);
+      setDeviceId(id);
+    })();
+  }, []);
+
+  // Load all data once deviceId is available
   const dataQuery = useQuery({
-    queryKey: ['app-data'],
+    queryKey: ['app-data', deviceId],
     queryFn: async () => {
-      const [d, t, c, m, s, p, ci, st, ei, g, pers, pdna, wr] = await Promise.all([
-        loadFromStorage<ThoughtDrain[]>(STORAGE_KEYS.drains, []),
-        loadFromStorage<TribunalSession[]>(STORAGE_KEYS.tribunals, []),
-        loadFromStorage<Commitment[]>(STORAGE_KEYS.commitments, []),
-        loadFromStorage<ChatMessage[]>(STORAGE_KEYS.chatMessages, []),
-        loadFromStorage<UserStats>(STORAGE_KEYS.stats, DEFAULT_STATS),
-        loadFromStorage<boolean>(STORAGE_KEYS.isPro, false),
-        loadFromStorage<DailyCheckIn[]>(STORAGE_KEYS.checkIns, []),
-        loadFromStorage<SpiralTimer[]>(STORAGE_KEYS.spiralTimers, []),
-        loadFromStorage<ExternalInput[]>(STORAGE_KEYS.externalInputs, []),
-        loadFromStorage<GraveyardEntry[]>(STORAGE_KEYS.graveyard, []),
-        loadFromStorage<SocraPersonality>(STORAGE_KEYS.personality, 'default'),
-        loadFromStorage<PatternDNA | null>(STORAGE_KEYS.patternDNA, null),
-        loadFromStorage<WeeklyReport[]>(STORAGE_KEYS.weeklyReports, []),
+      if (!deviceId) throw new Error('No device ID');
+      const [
+        d, t, c, m, ci, st, ei, g, profile, pdna, wr,
+      ] = await Promise.all([
+        drainsService.getDrains(deviceId),
+        tribunalsService.getTribunals(deviceId),
+        commitmentsService.getCommitments(deviceId),
+        chatService.getChatMessages(deviceId),
+        checkinsService.getCheckins(deviceId),
+        spiralService.getSpiralTimers(deviceId),
+        inputsService.getExternalInputs(deviceId),
+        graveyardService.getGraveyardEntries(deviceId),
+        statsService.getProfile(deviceId),
+        statsService.getPatternDNA(deviceId),
+        statsService.getWeeklyReports(deviceId),
       ]);
       return {
-        drains: d, tribunals: t, commitments: c, chatMessages: m,
-        stats: s, isPro: p, checkIns: ci, spiralTimers: st,
-        externalInputs: ei, graveyard: g, personality: pers,
-        patternDNA: pdna, weeklyReports: wr,
+        drains: d,
+        tribunals: t,
+        commitments: c,
+        chatMessages: m,
+        checkIns: ci,
+        spiralTimers: st,
+        externalInputs: ei,
+        graveyard: g,
+        stats: profile?.stats || DEFAULT_STATS,
+        settings: profile?.settings || null,
+        patternDNA: pdna,
+        weeklyReports: wr,
       };
     },
+    enabled: !!deviceId,
   });
 
   useEffect(() => {
@@ -131,260 +117,205 @@ export const [AppProvider, useApp] = createContextHook(() => {
       setCommitments(dataQuery.data.commitments);
       setChatMessages(dataQuery.data.chatMessages);
       setStats(dataQuery.data.stats);
-      setIsPro(dataQuery.data.isPro);
       setCheckIns(dataQuery.data.checkIns);
       setSpiralTimers(dataQuery.data.spiralTimers);
       setExternalInputs(dataQuery.data.externalInputs);
       setGraveyard(dataQuery.data.graveyard);
-      setPersonality(dataQuery.data.personality);
       setPatternDNA(dataQuery.data.patternDNA);
       setWeeklyReports(dataQuery.data.weeklyReports);
+      if (dataQuery.data.settings) {
+        setPersonality(dataQuery.data.settings.personality);
+        setIsPro(dataQuery.data.settings.isPro);
+        setNotificationEnabled(dataQuery.data.settings.notificationEnabled);
+        setSlapEnabled(dataQuery.data.settings.slapEnabled);
+        setSlapFrequency(dataQuery.data.settings.slapFrequency);
+      }
     }
   }, [dataQuery.data]);
 
+  // ── Mutations ──
+
   const addDrainMutation = useMutation({
     mutationFn: async (text: string) => {
-      const loopScore = generateLoopScore();
-      const newDrain: ThoughtDrain = {
-        id: generateId(),
-        text,
-        socraResponse: getRandomItem(SOCRA_QUESTIONS),
-        timestamp: Date.now(),
-        loopScore,
-        resolved: false,
-      };
-      const updated = [newDrain, ...drains];
-      setDrains(updated);
-      await saveToStorage(STORAGE_KEYS.drains, updated);
-
-      const newStats = {
-        ...stats,
-        totalDrains: stats.totalDrains + 1,
-        chamberScore: Math.min(100, stats.chamberScore + 2),
-      };
+      if (!deviceId) throw new Error('No device ID');
+      // AI generates the response, local function computes loop score
+      const [socraResponse, loopScore] = await Promise.all([
+        ai.generateDrainResponse(text, personality),
+        Promise.resolve(ai.computeLoopScore(text)),
+      ]);
+      const newDrain = await drainsService.createDrain(deviceId, text, socraResponse, loopScore);
+      const newStats = await statsService.incrementStat(deviceId, 'total_drains', 2);
+      setDrains((prev) => [newDrain, ...prev]);
       setStats(newStats);
-      await saveToStorage(STORAGE_KEYS.stats, newStats);
-
       return newDrain;
     },
   });
 
   const addTribunalMutation = useMutation({
     mutationFn: async (session: { topic: string; sideA: string; sideB: string }) => {
-      const newSession: TribunalSession = {
-        id: generateId(),
-        topic: session.topic,
-        sideA: session.sideA,
-        sideB: session.sideB,
-        verdict: getRandomItem(SOCRA_VERDICTS),
-        decision: '',
-        timestamp: Date.now(),
-        locked: true,
-      };
-      const updated = [newSession, ...tribunals];
-      setTribunals(updated);
-      await saveToStorage(STORAGE_KEYS.tribunals, updated);
-
-      const newStats = {
-        ...stats,
-        totalTribunals: stats.totalTribunals + 1,
-        chamberScore: Math.min(100, stats.chamberScore + 5),
-      };
+      if (!deviceId) throw new Error('No device ID');
+      const verdict = await ai.generateTribunalVerdict(
+        session.topic,
+        session.sideA,
+        session.sideB,
+        personality
+      );
+      const newSession = await tribunalsService.createTribunal(
+        deviceId,
+        session.topic,
+        session.sideA,
+        session.sideB,
+        verdict
+      );
+      const newStats = await statsService.incrementStat(deviceId, 'total_tribunals', 5);
+      setTribunals((prev) => [newSession, ...prev]);
       setStats(newStats);
-      await saveToStorage(STORAGE_KEYS.stats, newStats);
-
       return newSession;
     },
   });
 
   const addCommitmentMutation = useMutation({
     mutationFn: async (data: { decision: string; source: 'drain' | 'tribunal' | 'manual'; sharedWith?: string }) => {
-      const newCommitment: Commitment = {
-        id: generateId(),
-        decision: data.decision,
-        timestamp: Date.now(),
-        deadline: Date.now() + 72 * 3600000,
-        proofRequired: 'text',
-        proofSubmitted: false,
-        shamed: false,
-        source: data.source,
-        sharedWith: data.sharedWith,
-      };
-      const updated = [newCommitment, ...commitments];
-      setCommitments(updated);
-      await saveToStorage(STORAGE_KEYS.commitments, updated);
+      if (!deviceId) throw new Error('No device ID');
+      const newCommitment = await commitmentsService.createCommitment(deviceId, data);
+      setCommitments((prev) => [newCommitment, ...prev]);
       return newCommitment;
     },
   });
 
   const submitProofMutation = useMutation({
     mutationFn: async (data: { id: string; proof: string }) => {
-      const updated = commitments.map((c) =>
-        c.id === data.id ? { ...c, proofSubmitted: true, proofText: data.proof } : c
+      if (!deviceId) throw new Error('No device ID');
+      await commitmentsService.submitProof(data.id, data.proof);
+      const newStats = await statsService.incrementStat(deviceId, 'commitments_kept', 8);
+      setCommitments((prev) =>
+        prev.map((c) =>
+          c.id === data.id ? { ...c, proofSubmitted: true, proofText: data.proof } : c
+        )
       );
-      setCommitments(updated);
-      await saveToStorage(STORAGE_KEYS.commitments, updated);
-
-      const newStats = {
-        ...stats,
-        commitmentsKept: stats.commitmentsKept + 1,
-        chamberScore: Math.min(100, stats.chamberScore + 8),
-        currentStreak: stats.currentStreak + 1,
-        longestStreak: Math.max(stats.longestStreak, stats.currentStreak + 1),
-      };
       setStats(newStats);
-      await saveToStorage(STORAGE_KEYS.stats, newStats);
     },
   });
 
   const sendChatMutation = useMutation({
     mutationFn: async (text: string) => {
-      const userMsg: ChatMessage = {
-        id: generateId(),
-        role: 'user',
-        text,
-        timestamp: Date.now(),
-      };
-      const responses = SOCRA_CHAT_RESPONSES[personality] || SOCRA_CHAT_RESPONSES.default;
-      const socraMsg: ChatMessage = {
-        id: generateId(),
-        role: 'socra',
-        text: getRandomItem(responses),
-        timestamp: Date.now() + 1000,
-      };
-      const updated = [...chatMessages, userMsg, socraMsg];
-      setChatMessages(updated);
-      await saveToStorage(STORAGE_KEYS.chatMessages, updated);
+      if (!deviceId) throw new Error('No device ID');
+      const userMsg = await chatService.createChatMessage(deviceId, 'user', text);
+      setChatMessages((prev) => [...prev, userMsg]);
+
+      const aiResponse = await ai.generateChatResponse(text, chatMessages, personality);
+      const socraMsg = await chatService.createChatMessage(deviceId, 'socra', aiResponse);
+      setChatMessages((prev) => [...prev, socraMsg]);
       return socraMsg;
     },
   });
 
   const upgradeToProMutation = useMutation({
     mutationFn: async () => {
+      if (!deviceId) throw new Error('No device ID');
+      await statsService.updateSettings(deviceId, { is_pro: true });
       setIsPro(true);
-      await saveToStorage(STORAGE_KEYS.isPro, true);
     },
   });
 
   const addCheckInMutation = useMutation({
     mutationFn: async (data: { avoidingDecision: string; committedAction: string; yesterdayLoop: string }) => {
+      if (!deviceId) throw new Error('No device ID');
+      const newCheckIn = await checkinsService.createCheckin(deviceId, data);
       const today = new Date().toISOString().split('T')[0];
-      const newCheckIn: DailyCheckIn = {
-        id: generateId(),
-        date: today,
-        avoidingDecision: data.avoidingDecision,
-        committedAction: data.committedAction,
-        yesterdayLoop: data.yesterdayLoop,
-        timestamp: Date.now(),
-      };
-      const updated = [newCheckIn, ...checkIns];
-      setCheckIns(updated);
-      await saveToStorage(STORAGE_KEYS.checkIns, updated);
-
-      const newStats = {
-        ...stats,
-        chamberScore: Math.min(100, stats.chamberScore + 3),
+      await statsService.updateProfileStats(deviceId, {
+        chamber_score: Math.min(100, stats.chamberScore + 3),
+        last_checkin_date: today,
+      });
+      setCheckIns((prev) => [newCheckIn, ...prev]);
+      setStats((prev) => ({
+        ...prev,
+        chamberScore: Math.min(100, prev.chamberScore + 3),
         lastCheckInDate: today,
-      };
-      setStats(newStats);
-      await saveToStorage(STORAGE_KEYS.stats, newStats);
-
+      }));
       return newCheckIn;
     },
   });
 
   const addSpiralTimerMutation = useMutation({
     mutationFn: async (data: { topic: string; durationMinutes: number }) => {
-      const timer: SpiralTimer = {
-        id: generateId(),
-        topic: data.topic,
-        durationMinutes: data.durationMinutes,
-        startedAt: Date.now(),
-        decided: false,
-      };
-      const updated = [timer, ...spiralTimers];
-      setSpiralTimers(updated);
-      await saveToStorage(STORAGE_KEYS.spiralTimers, updated);
+      if (!deviceId) throw new Error('No device ID');
+      const timer = await spiralService.createSpiralTimer(deviceId, data.topic, data.durationMinutes);
+      setSpiralTimers((prev) => [timer, ...prev]);
       return timer;
     },
   });
 
   const completeSpiralTimerMutation = useMutation({
     mutationFn: async (data: { id: string; decision?: string }) => {
-      const updated = spiralTimers.map((t) =>
-        t.id === data.id ? { ...t, completedAt: Date.now(), decided: !!data.decision, decision: data.decision } : t
+      if (!deviceId) throw new Error('No device ID');
+      await spiralService.completeSpiralTimer(data.id, data.decision);
+      setSpiralTimers((prev) =>
+        prev.map((t) =>
+          t.id === data.id
+            ? { ...t, completedAt: Date.now(), decided: !!data.decision, decision: data.decision }
+            : t
+        )
       );
-      setSpiralTimers(updated);
-      await saveToStorage(STORAGE_KEYS.spiralTimers, updated);
-
       if (data.decision) {
-        const newStats = {
-          ...stats,
-          chamberScore: Math.min(100, stats.chamberScore + 4),
-        };
-        setStats(newStats);
-        await saveToStorage(STORAGE_KEYS.stats, newStats);
+        await statsService.updateProfileStats(deviceId, {
+          chamber_score: Math.min(100, stats.chamberScore + 4),
+        });
+        setStats((prev) => ({
+          ...prev,
+          chamberScore: Math.min(100, prev.chamberScore + 4),
+        }));
       }
     },
   });
 
   const addExternalInputMutation = useMutation({
     mutationFn: async (data: { type: ExternalInput['type']; description: string }) => {
-      const input: ExternalInput = {
-        id: generateId(),
-        type: data.type,
-        description: data.description,
-        timestamp: Date.now(),
-      };
-      const updated = [input, ...externalInputs];
-      setExternalInputs(updated);
-      await saveToStorage(STORAGE_KEYS.externalInputs, updated);
-
-      const newStats = {
-        ...stats,
-        chamberScore: Math.min(100, stats.chamberScore + 1),
-      };
-      setStats(newStats);
-      await saveToStorage(STORAGE_KEYS.stats, newStats);
-
+      if (!deviceId) throw new Error('No device ID');
+      const input = await inputsService.createExternalInput(deviceId, data.type, data.description);
+      await statsService.updateProfileStats(deviceId, {
+        chamber_score: Math.min(100, stats.chamberScore + 1),
+      });
+      setExternalInputs((prev) => [input, ...prev]);
+      setStats((prev) => ({
+        ...prev,
+        chamberScore: Math.min(100, prev.chamberScore + 1),
+      }));
       return input;
     },
   });
 
   const addToGraveyardMutation = useMutation({
     mutationFn: async (data: { type: GraveyardEntry['type']; description: string; originalId?: string }) => {
-      const entry: GraveyardEntry = {
-        id: generateId(),
-        type: data.type,
-        description: data.description,
-        timestamp: Date.now(),
-        originalId: data.originalId,
-      };
-      const updated = [entry, ...graveyard];
-      setGraveyard(updated);
-      await saveToStorage(STORAGE_KEYS.graveyard, updated);
-
-      const newStats = {
-        ...stats,
-        commitmentsBroken: stats.commitmentsBroken + 1,
-        currentStreak: 0,
-      };
+      if (!deviceId) throw new Error('No device ID');
+      const entry = await graveyardService.createGraveyardEntry(
+        deviceId,
+        data.type,
+        data.description,
+        data.originalId
+      );
+      const newStats = await statsService.incrementStat(deviceId, 'commitments_broken', 0);
+      setGraveyard((prev) => [entry, ...prev]);
       setStats(newStats);
-      await saveToStorage(STORAGE_KEYS.stats, newStats);
-
       return entry;
     },
   });
 
   const setPersonalityMutation = useMutation({
     mutationFn: async (mode: SocraPersonality) => {
+      if (!deviceId) throw new Error('No device ID');
+      await statsService.updateSettings(deviceId, { personality: mode });
       setPersonality(mode);
-      await saveToStorage(STORAGE_KEYS.personality, mode);
     },
   });
 
   const generatePatternDNAMutation = useMutation({
     mutationFn: async () => {
+      if (!deviceId) throw new Error('No device ID');
+
+      const drainTexts = drains.map((d) => d.text);
+
+      // Word frequency analysis
       const topWords: Record<string, number> = {};
       drains.forEach((d) => {
         const words = d.text.toLowerCase().split(/\s+/);
@@ -398,57 +329,137 @@ export const [AppProvider, useApp] = createContextHook(() => {
         .slice(0, 5)
         .map(([word]) => word);
 
+      // AI generates the avoidance style insight
+      const avoidanceStyle = await ai.generatePatternInsight(drainTexts, personality);
+
       const dna: PatternDNA = {
         topLoops: sortedLoops.length > 0 ? sortedLoops : ['career', 'relationship', 'money'],
-        avoidanceStyle: getRandomItem(PATTERN_DNA_STYLES),
-        avgThoughtToActionMinutes: Math.floor(Math.random() * 120) + 30,
+        avoidanceStyle,
+        avgThoughtToActionMinutes: drains.length > 0
+          ? Math.floor(
+              drains.reduce((sum, d) => {
+                const resolved = commitments.find(
+                  (c) => c.source === 'drain' && c.timestamp > d.timestamp
+                );
+                return sum + (resolved ? (resolved.timestamp - d.timestamp) / 60000 : 120);
+              }, 0) / drains.length
+            )
+          : 0,
         totalDrainsAnalyzed: drains.length,
         loopFrequency: topWords,
         generatedAt: Date.now(),
       };
 
+      await statsService.savePatternDNA(deviceId, dna);
       setPatternDNA(dna);
-      await saveToStorage(STORAGE_KEYS.patternDNA, dna);
       return dna;
     },
   });
 
   const generateWeeklyReportMutation = useMutation({
     mutationFn: async () => {
+      if (!deviceId) throw new Error('No device ID');
+
+      const weekDrains = drains.filter((d) => d.timestamp > Date.now() - 7 * 86400000);
+      const loopsBroken = weekDrains.filter((d) => d.resolved).length;
+
+      const socraVerdict = await ai.generateWeeklyVerdict(
+        {
+          chamberScore: stats.chamberScore,
+          totalDrains: stats.totalDrains,
+          totalTribunals: stats.totalTribunals,
+          commitmentsKept: stats.commitmentsKept,
+          commitmentsBroken: stats.commitmentsBroken,
+          currentStreak: stats.currentStreak,
+        },
+        personality
+      );
+
       const report: WeeklyReport = {
         weekOf: new Date().toISOString().split('T')[0],
         avgEscapeScore: stats.chamberScore,
-        loopsBroken: Math.floor(Math.random() * 5) + 1,
+        loopsBroken,
         commitmentsKept: stats.commitmentsKept,
         commitmentsMissed: stats.commitmentsBroken,
         totalDrains: stats.totalDrains,
         totalTribunals: stats.totalTribunals,
         streakDays: stats.currentStreak,
-        socraVerdict: getRandomItem(WEEKLY_VERDICTS),
-        topPattern: 'Career decision avoidance',
+        socraVerdict,
+        topPattern: patternDNA?.topLoops[0] || 'Not enough data',
       };
-      const updated = [report, ...weeklyReports];
-      setWeeklyReports(updated);
-      await saveToStorage(STORAGE_KEYS.weeklyReports, updated);
+
+      await statsService.saveWeeklyReport(deviceId, report);
+      setWeeklyReports((prev) => [report, ...prev]);
       return report;
     },
   });
 
   const clearChatMutation = useMutation({
     mutationFn: async () => {
+      if (!deviceId) throw new Error('No device ID');
+      await chatService.clearChat(deviceId);
       setChatMessages([]);
-      await saveToStorage(STORAGE_KEYS.chatMessages, []);
     },
   });
 
-  const echoReport: EchoReport = useMemo(() => ({
-    loopScore: drains.length > 0 ? Math.round(drains.reduce((sum, d) => sum + d.loopScore, 0) / drains.length) : 0,
-    repetitions: Math.floor(Math.random() * 5) + 1,
-    circularPatterns: Math.floor(Math.random() * 3) + 1,
-    catastrophizing: Math.floor(Math.random() * 4),
-    pseudoIntellectual: Math.floor(Math.random() * 2),
-    topLoops: ['Career decisions', 'Relationship analysis', 'Self-worth questioning'],
-  }), [drains]);
+  const clearAllDataMutation = useMutation({
+    mutationFn: async () => {
+      if (!deviceId) throw new Error('No device ID');
+      await statsService.clearAllData(deviceId);
+      setDrains([]);
+      setTribunals([]);
+      setCommitments([]);
+      setChatMessages([]);
+      setCheckIns([]);
+      setSpiralTimers([]);
+      setExternalInputs([]);
+      setGraveyard([]);
+      setPatternDNA(null);
+      setWeeklyReports([]);
+      setStats(DEFAULT_STATS);
+    },
+  });
+
+  const updateNotificationSettingsMutation = useMutation({
+    mutationFn: async (data: {
+      notificationEnabled?: boolean;
+      slapEnabled?: boolean;
+      slapFrequency?: 'aggressive' | 'daily' | 'gentle';
+    }) => {
+      if (!deviceId) throw new Error('No device ID');
+      const updates: Record<string, unknown> = {};
+      if (data.notificationEnabled !== undefined) {
+        updates.notification_enabled = data.notificationEnabled;
+        setNotificationEnabled(data.notificationEnabled);
+      }
+      if (data.slapEnabled !== undefined) {
+        updates.slap_enabled = data.slapEnabled;
+        setSlapEnabled(data.slapEnabled);
+      }
+      if (data.slapFrequency !== undefined) {
+        updates.slap_frequency = data.slapFrequency;
+        setSlapFrequency(data.slapFrequency);
+      }
+      await statsService.updateSettings(deviceId, updates);
+    },
+  });
+
+  // ── Computed values ──
+
+  const echoReport: EchoReport = useMemo(
+    () => ({
+      loopScore:
+        drains.length > 0
+          ? Math.round(drains.reduce((sum, d) => sum + d.loopScore, 0) / drains.length)
+          : 0,
+      repetitions: 0,
+      circularPatterns: 0,
+      catastrophizing: 0,
+      pseudoIntellectual: 0,
+      topLoops: [],
+    }),
+    [drains]
+  );
 
   const weeklyDrainCount = useMemo(() => {
     const weekAgo = Date.now() - 7 * 86400000;
@@ -460,7 +471,9 @@ export const [AppProvider, useApp] = createContextHook(() => {
   const interventionNeeded = useMemo(() => {
     if (drains.length < 3) return false;
     const recentDrains = drains.slice(0, 5);
-    const uniqueTopics = new Set(recentDrains.map((d) => d.text.split(' ').slice(0, 3).join(' ')));
+    const uniqueTopics = new Set(
+      recentDrains.map((d) => d.text.split(' ').slice(0, 3).join(' '))
+    );
     return uniqueTopics.size <= 2 && recentDrains.length >= 3;
   }, [drains]);
 
@@ -476,6 +489,7 @@ export const [AppProvider, useApp] = createContextHook(() => {
   }, [externalInputs]);
 
   return {
+    // Data
     drains,
     tribunals,
     commitments,
@@ -485,7 +499,7 @@ export const [AppProvider, useApp] = createContextHook(() => {
     echoReport,
     canDrain,
     weeklyDrainCount,
-    isLoading: dataQuery.isLoading,
+    isLoading: dataQuery.isLoading || !deviceId,
     checkIns,
     spiralTimers,
     externalInputs,
@@ -496,7 +510,12 @@ export const [AppProvider, useApp] = createContextHook(() => {
     interventionNeeded,
     todayCheckedIn,
     todayExternalInputs,
+    deviceId,
+    notificationEnabled,
+    slapEnabled,
+    slapFrequency,
 
+    // Mutations
     addDrain: addDrainMutation.mutateAsync,
     isDraining: addDrainMutation.isPending,
     addTribunal: addTribunalMutation.mutateAsync,
@@ -518,5 +537,7 @@ export const [AppProvider, useApp] = createContextHook(() => {
     generateWeeklyReport: generateWeeklyReportMutation.mutateAsync,
     isGeneratingReport: generateWeeklyReportMutation.isPending,
     clearChat: clearChatMutation.mutateAsync,
+    clearAllData: clearAllDataMutation.mutateAsync,
+    updateNotificationSettings: updateNotificationSettingsMutation.mutateAsync,
   };
 });

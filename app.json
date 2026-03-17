@@ -1,28 +1,28 @@
 {
   "expo": {
-    "name": "ThinkLess: Escape the Echo",
-    "slug": "thinkless-escape-the-echo",
+    "name": "ThinkLess",
+    "slug": "thinkless",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "rork-app",
-    "userInterfaceStyle": "automatic",
+    "scheme": "thinkless",
+    "userInterfaceStyle": "dark",
     "newArchEnabled": true,
     "splash": {
       "image": "./assets/images/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#080808"
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "app.rork.thinkless-escape-the-echo"
+      "bundleIdentifier": "com.thinkless.app"
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#080808"
       },
-      "package": "app.rork.thinkless_escape_the_echo"
+      "package": "com.thinkless.app"
     },
     "web": {
       "favicon": "./assets/images/favicon.png"
@@ -31,7 +31,7 @@
       [
         "expo-router",
         {
-          "origin": "https://rork.com/"
+          "origin": "https://thinkless.app/"
         }
       ],
       "expo-font",

@@ -6,6 +6,7 @@ import {
   ScrollView,
   TouchableOpacity,
   Animated,
+  ActivityIndicator,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import {
@@ -36,7 +37,7 @@ interface QuickAction {
 
 export default function HomeScreen() {
   const router = useRouter();
-  const { stats, commitments, echoReport, todayCheckedIn, interventionNeeded } = useApp();
+  const { stats, commitments, echoReport, todayCheckedIn, todayExternalInputs, interventionNeeded, drains, isLoading } = useApp();
   const pulseAnim = useRef(new Animated.Value(1)).current;
 
   const score = stats.chamberScore;
@@ -51,13 +52,21 @@ export default function HomeScreen() {
     ).start();
   }, [pulseAnim]);
 
+  if (isLoading) {
+    return (
+      <View style={{ flex: 1, backgroundColor: Colors.bg, justifyContent: 'center', alignItems: 'center' }}>
+        <ActivityIndicator color={Colors.accent} size="large" />
+      </View>
+    );
+  }
+
   const pendingCommitments = commitments.filter((c) => !c.proofSubmitted && !c.shamed).length;
 
   const breakdown: BreakdownItem[] = [
     { label: 'Thought→Action Ratio', value: Math.min(100, Math.round(score * 1.1)), good: true },
     { label: 'Loop Patterns Detected', value: echoReport.loopScore, good: echoReport.loopScore < 40 },
     { label: 'Commitments Kept', value: Math.min(100, stats.commitmentsKept * 20), good: true },
-    { label: 'External Input Consumed', value: 55, good: true },
+    { label: 'External Input Consumed', value: Math.min(100, todayExternalInputs.length * 20), good: true },
   ];
 
   const streakDays = stats.currentStreak;
@@ -236,7 +245,9 @@ export default function HomeScreen() {
           <View style={styles.socraTagLine} />
         </View>
         <Text style={styles.socraQuote}>
-          {'"You\'ve been cycling this same career decision for 11 days. What specific information are you waiting for that you couldn\'t generate yourself right now?"'}
+          {drains.length > 0
+            ? `"${drains[0].socraResponse}"`
+            : '"No thoughts drained yet. Start dumping your spiral into the Drain and I\'ll tell you what you already know."'}
         </Text>
       </View>
 
